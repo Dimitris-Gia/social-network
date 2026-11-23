@@ -41,6 +41,13 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 	WriteJSON(w, status, map[string]string{"error": message})
 }
 
+// ServerError logs the real error for us and sends the client a generic 500.
+// Internal details (SQL errors, file paths) must never reach the browser.
+func ServerError(w http.ResponseWriter, err error) {
+	log.Printf("internal error: %v", err)
+	WriteError(w, http.StatusInternalServerError, "internal server error")
+}
+
 // ReadJSON decodes the request body into dst (pass a pointer to a struct).
 // The returned error is safe to show to the client, because it only
 // describes what was wrong with THEIR input.
