@@ -114,22 +114,33 @@ func CreatePost(db *sql.DB, userID int64, groupID *int64, content string, imageP
 	return postID, nil
 }
 
-// GetPost loads one post with its author and comment count. It does NOT check
-// who may see it: call CanViewPost before showing it to anyone.
-func GetPost(db *sql.DB, id int64) (*Post, error) {
+// postColumns and scanPost keep the SELECT list and the Scan call in one
+// place, so GetPost, Feed and PostsByUser always agree.
+const postColumns = `p.id, p.group_id, p.content, p.image_path, p.privacy, p.created_at,
+	u.id, u.first_name, u.last_name, u.nickname, u.avatar_path,
+	(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)`
+
+// rowScanner is satisfied by *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanPost(r rowScanner) (Post, error) {
 	var p Post
-	err := db.QueryRow(`
-		SELECT p.id, p.group_id, p.content, p.image_path, p.privacy, p.created_at,
-		       u.id, u.first_name, u.last_name, u.nickname, u.avatar_path,
-		       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)
-		FROM posts p
-		JOIN users u ON u.id = p.user_id
-		WHERE p.id = ?`, id,
-	).Scan(
+	err := r.Scan(
 		&p.ID, &p.GroupID, &p.Content, &p.ImagePath, &p.Privacy, &p.CreatedAt,
 		&p.Author.ID, &p.Author.FirstName, &p.Author.LastName, &p.Author.Nickname, &p.Author.AvatarPath,
 		&p.CommentCount,
 	)
+	return p, err
+}
+
+// GetPost loads one post with its author and comment count. It does NOT check
+// who may see it: call CanViewPost before showing it to anyone.
+func GetPost(db *sql.DB, id int64) (*Post, error) {
+	p, err := scanPost(db.QueryRow(
+		`SELECT `+postColumns+` FROM posts p JOIN users u ON u.id = p.user_id WHERE p.id = ?`, id,
+	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPostNotFound
 	}
@@ -199,4 +210,91 @@ func postIsGroupMember(q rowQuerier, groupID, userID int64) (bool, error) {
 		return false, fmt.Errorf("check membership: %w", err)
 	}
 	return ok, nil
+}
+
+// Page sizes for Feed and PostsByUser (see API.md).
+const (
+	DefaultPageSize = 20
+	MaxPageSize     = 50
+)
+
+// Feed returns the posts the viewer may see on their home page, newest first:
+// their own posts, public posts, almost_private posts of users they follow,
+// and private posts they were chosen for. Group posts are never in the feed.
+//
+// before is a post ID: only older posts are returned (0 = start from the
+// newest). hasMore tells the frontend whether another page exists.
+func Feed(db *sql.DB, viewerID int64, limit int, before int64) (posts []Post, hasMore bool, err error) {
+	return listPosts(db, viewerID, 0, limit, before)
+}
+
+// PostsByUser returns the posts of authorID that the viewer may see, newest
+// first, with the same paging as Feed. It applies the POST rule only. Whether
+// the viewer may open authorID's profile at all (private profile gate, 403 in
+// API.md) is checked by the handler before calling this.
+func PostsByUser(db *sql.DB, viewerID, authorID int64, limit int, before int64) (posts []Post, hasMore bool, err error) {
+	return listPosts(db, viewerID, authorID, limit, before)
+}
+
+// listPosts is the one query behind Feed and PostsByUser. The visibility rules
+// are the same as CanViewPost, written as SQL so a page is filtered in the
+// database. If you change one, change the other (the tests compare them).
+//
+// authorID = 0 means "any author"; before = 0 means "no upper bound". Both use
+// the "? = 0 OR ..." form so the SQL text is constant: values only ever go
+// through ? placeholders.
+func listPosts(db *sql.DB, viewerID, authorID int64, limit int, before int64) ([]Post, bool, error) {
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	if limit > MaxPageSize {
+		limit = MaxPageSize
+	}
+
+	rows, err := db.Query(`
+		SELECT `+postColumns+`
+		FROM posts p
+		JOIN users u ON u.id = p.user_id
+		WHERE p.group_id IS NULL
+		  AND (? = 0 OR p.user_id = ?)
+		  AND (? = 0 OR p.id < ?)
+		  AND (
+		        p.user_id = ?
+		     OR p.privacy = 'public'
+		     OR (p.privacy = 'almost_private' AND EXISTS (
+		            SELECT 1 FROM follows f
+		            WHERE f.follower_id = ? AND f.following_id = p.user_id AND f.status = 'accepted'))
+		     OR (p.privacy = 'private' AND EXISTS (
+		            SELECT 1 FROM post_allowed_viewers v
+		            WHERE v.post_id = p.id AND v.user_id = ?))
+		  )
+		ORDER BY p.id DESC
+		LIMIT ?`,
+		authorID, authorID,
+		before, before,
+		viewerID, viewerID, viewerID,
+		limit+1, // one extra row tells us whether there is a next page
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("list posts: %w", err)
+	}
+	defer rows.Close()
+
+	posts := []Post{} // empty slice, not nil, so JSON is [] and not null
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, false, fmt.Errorf("scan post: %w", err)
+		}
+		posts = append(posts, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("list posts: %w", err)
+	}
+
+	hasMore := len(posts) > limit
+	if hasMore {
+		posts = posts[:limit]
+	}
+	return posts, hasMore, nil
 }

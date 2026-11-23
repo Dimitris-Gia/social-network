@@ -210,3 +210,207 @@ func TestGetPost(t *testing.T) {
 		t.Errorf("missing post: got %v, want ErrPostNotFound", err)
 	}
 }
+
+func postIDs(posts []Post) []int64 {
+	ids := []int64{}
+	for _, p := range posts {
+		ids = append(ids, p.ID)
+	}
+	return ids
+}
+
+func sameIDs(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// feedFixture: "author" writes one post of each kind; "me" is the viewer.
+type feedFixture struct {
+	db                           *sql.DB
+	author, me, other            int64
+	pub, almost, priv, grp, mine *Post
+}
+
+func newFeedFixture(t *testing.T, meFollowsAuthor, meChosen bool) *feedFixture {
+	t.Helper()
+	db := openPostTestDB(t)
+	f := &feedFixture{db: db}
+	f.author = postTestUser(t, db, "author")
+	f.me = postTestUser(t, db, "me")
+	f.other = postTestUser(t, db, "other")
+	postTestExec(t, db, `INSERT INTO groups (creator_id, title, description) VALUES (?, 'g', 'd')`, f.author)
+	postTestExec(t, db, `INSERT INTO group_members (group_id, user_id, status) VALUES (1, ?, 'member')`, f.author)
+
+	// the author needs "me" as accepted follower to choose them for a private post
+	postTestFollow(t, db, f.me, f.author, "accepted")
+	var viewers []int64
+	if meChosen {
+		viewers = []int64{f.me}
+	} else {
+		postTestFollow(t, db, f.other, f.author, "accepted")
+		viewers = []int64{f.other}
+	}
+	f.pub = mustCreate(t, db, f.author, nil, PrivacyPublic, nil)
+	f.almost = mustCreate(t, db, f.author, nil, PrivacyAlmostPrivate, nil)
+	f.priv = mustCreate(t, db, f.author, nil, PrivacyPrivate, viewers)
+	g := int64(1)
+	f.grp = mustCreate(t, db, f.author, &g, PrivacyPublic, nil)
+	f.mine = mustCreate(t, db, f.me, nil, PrivacyPrivate, viewersForMine(t, db, f))
+	if !meFollowsAuthor {
+		postTestExec(t, db, `DELETE FROM follows WHERE follower_id = ? AND following_id = ?`, f.me, f.author)
+	}
+	return f
+}
+
+// viewersForMine returns a valid viewer list for a private post written by "me".
+func viewersForMine(t *testing.T, db *sql.DB, f *feedFixture) []int64 {
+	t.Helper()
+	postTestFollow(t, db, f.other, f.me, "accepted")
+	return []int64{f.other}
+}
+
+func TestFeedContents(t *testing.T) {
+	t.Run("follower chosen for the private post", func(t *testing.T) {
+		f := newFeedFixture(t, true, true)
+		got, _, err := Feed(f.db, f.me, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// newest first; the group post is never in the feed
+		want := []int64{f.mine.ID, f.priv.ID, f.almost.ID, f.pub.ID}
+		if !sameIDs(postIDs(got), want) {
+			t.Errorf("feed = %v, want %v", postIDs(got), want)
+		}
+	})
+
+	t.Run("follower not chosen", func(t *testing.T) {
+		f := newFeedFixture(t, true, false)
+		got, _, _ := Feed(f.db, f.me, 0, 0)
+		want := []int64{f.mine.ID, f.almost.ID, f.pub.ID}
+		if !sameIDs(postIDs(got), want) {
+			t.Errorf("feed = %v, want %v", postIDs(got), want)
+		}
+	})
+
+	t.Run("not a follower", func(t *testing.T) {
+		f := newFeedFixture(t, false, false)
+		got, _, _ := Feed(f.db, f.me, 0, 0)
+		want := []int64{f.mine.ID, f.pub.ID}
+		if !sameIDs(postIDs(got), want) {
+			t.Errorf("feed = %v, want %v", postIDs(got), want)
+		}
+	})
+
+	t.Run("pending follow request does not count", func(t *testing.T) {
+		f := newFeedFixture(t, false, false)
+		postTestFollow(t, f.db, f.me, f.author, "pending")
+		got, _, _ := Feed(f.db, f.me, 0, 0)
+		want := []int64{f.mine.ID, f.pub.ID}
+		if !sameIDs(postIDs(got), want) {
+			t.Errorf("feed = %v, want %v", postIDs(got), want)
+		}
+	})
+}
+
+// Agreed with the team: public posts of a PRIVATE profile are in everyone's feed.
+func TestFeedShowsPublicPostOfPrivateProfile(t *testing.T) {
+	f := newFeedFixture(t, false, false)
+	postTestExec(t, f.db, `UPDATE users SET is_private = 1 WHERE id = ?`, f.author)
+	got, _, _ := Feed(f.db, f.me, 0, 0)
+	want := []int64{f.mine.ID, f.pub.ID}
+	if !sameIDs(postIDs(got), want) {
+		t.Errorf("feed = %v, want %v", postIDs(got), want)
+	}
+}
+
+// The SQL filter and CanViewPost must never disagree.
+func TestFeedMatchesCanViewPost(t *testing.T) {
+	for _, tc := range []struct{ follows, chosen bool }{{true, true}, {true, false}, {false, false}} {
+		f := newFeedFixture(t, tc.follows, tc.chosen)
+		inFeed := map[int64]bool{}
+		got, _, _ := Feed(f.db, f.me, 0, 0)
+		for _, p := range got {
+			inFeed[p.ID] = true
+		}
+		for _, p := range []*Post{f.pub, f.almost, f.priv, f.mine} {
+			can, err := CanViewPost(f.db, f.me, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if can != inFeed[p.ID] {
+				t.Errorf("post %d (%s): CanViewPost=%v but inFeed=%v", p.ID, p.Privacy, can, inFeed[p.ID])
+			}
+		}
+	}
+}
+
+func TestFeedPaging(t *testing.T) {
+	db := openPostTestDB(t)
+	me := postTestUser(t, db, "me")
+	var ids []int64
+	for i := 0; i < 5; i++ {
+		ids = append(ids, mustCreate(t, db, me, nil, PrivacyPublic, nil).ID)
+	}
+
+	page1, more, err := Feed(db, me, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameIDs(postIDs(page1), []int64{ids[4], ids[3]}) || !more {
+		t.Errorf("page 1 = %v more=%v", postIDs(page1), more)
+	}
+	page2, more, _ := Feed(db, me, 2, page1[len(page1)-1].ID)
+	if !sameIDs(postIDs(page2), []int64{ids[2], ids[1]}) || !more {
+		t.Errorf("page 2 = %v more=%v", postIDs(page2), more)
+	}
+	page3, more, _ := Feed(db, me, 2, page2[len(page2)-1].ID)
+	if !sameIDs(postIDs(page3), []int64{ids[0]}) || more {
+		t.Errorf("page 3 = %v more=%v", postIDs(page3), more)
+	}
+
+	// an empty feed is an empty slice, not nil (JSON "[]", not "null")
+	nobody := postTestUser(t, db, "nobody")
+	empty, _, _ := PostsByUser(db, nobody, nobody, 10, 0)
+	if empty == nil || len(empty) != 0 {
+		t.Errorf("empty result = %#v, want empty non-nil slice", empty)
+	}
+
+	// limit is clamped to MaxPageSize
+	for i := 0; i < MaxPageSize+5; i++ {
+		mustCreate(t, db, me, nil, PrivacyPublic, nil)
+	}
+	big, more, _ := Feed(db, me, 1000, 0)
+	if len(big) != MaxPageSize || !more {
+		t.Errorf("got %d posts more=%v, want %d and more", len(big), more, MaxPageSize)
+	}
+}
+
+func TestPostsByUser(t *testing.T) {
+	f := newFeedFixture(t, true, false)
+	// a post by someone else must never show up in the author's list
+	mustCreate(t, f.db, f.other, nil, PrivacyPublic, nil)
+
+	got, _, err := PostsByUser(f.db, f.me, f.author, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// follower, not chosen: public + almost_private, no private, no group post
+	want := []int64{f.almost.ID, f.pub.ID}
+	if !sameIDs(postIDs(got), want) {
+		t.Errorf("posts by author = %v, want %v", postIDs(got), want)
+	}
+
+	// the author sees all of their own non-group posts
+	own, _, _ := PostsByUser(f.db, f.author, f.author, 0, 0)
+	want = []int64{f.priv.ID, f.almost.ID, f.pub.ID}
+	if !sameIDs(postIDs(own), want) {
+		t.Errorf("own posts = %v, want %v", postIDs(own), want)
+	}
+}
