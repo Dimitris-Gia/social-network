@@ -216,3 +216,59 @@ func Members(db *sql.DB, groupID int64) ([]Member, error) {
 	}
 	return members, rows.Err()
 }
+
+// GetGroupForViewer returns a group and the current viewer's membership status.
+func GetGroupForViewer(db *sql.DB, groupID, viewerID int64) (*Group, error) {
+	group, err := GetGroup(db, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = db.QueryRow(`SELECT status FROM group_members
+		WHERE group_id = ? AND user_id = ?`, groupID, viewerID).
+		Scan(&group.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		group.Status = "none"
+		return group, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return group, nil
+}
+
+// MembershipStatus returns the user's state in a group.
+func MembershipStatus(db *sql.DB, groupID, userID int64) (string, error) {
+	var status string
+	err := db.QueryRow(`SELECT status FROM group_members
+		WHERE group_id = ? AND user_id = ?`, groupID, userID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "none", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+// IsCreator reports whether userID created the group.
+func IsCreator(db *sql.DB, groupID, userID int64) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM groups WHERE id = ? AND creator_id = ?`, groupID, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}
+
+// IsFollower reports whether followerID follows followingID.
+func IsFollower(db *sql.DB, followerID, followingID int64) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM follows
+		WHERE follower_id = ? AND following_id = ? AND status = 'accepted'`,
+		followerID, followingID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}

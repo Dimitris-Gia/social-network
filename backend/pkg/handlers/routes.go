@@ -67,14 +67,17 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
 	// protected("GET /ws", h.ServeWS)
 
 	// ── C: groups & events ───────────────────────────────────
-	// protected("GET /api/groups", h.ListGroups)
-	// protected("POST /api/groups", h.CreateGroup)
-	// protected("GET /api/groups/{id}", h.GetGroup)
-	// protected("POST /api/groups/{id}/invite", h.InviteToGroup)
-	// protected("POST /api/groups/{id}/join", h.RequestJoin)
-	// protected("GET /api/groups/{id}/events", h.ListEvents)
-	// protected("POST /api/groups/{id}/events", h.CreateEvent)
-	// protected("POST /api/events/{id}/respond", h.RespondEvent)
+	protected("GET /api/groups", h.ListGroups)
+	protected("POST /api/groups", h.CreateGroup)
+	protected("GET /api/groups/{id}", h.GetGroup)
+	protected("POST /api/groups/{id}/invite", h.InviteToGroup)
+	protected("POST /api/groups/{id}/join", h.RequestJoin)
+	protected("GET /api/groups/{id}/members", h.Members)
+	protected("POST /api/groups/{id}/members/{user_id}/accept", h.AcceptMember)
+	protected("POST /api/groups/{id}/members/{user_id}/decline", h.DeclineMember)
+	protected("GET /api/groups/{id}/events", h.ListEvents)
+	protected("POST /api/groups/{id}/events", h.CreateEvent)
+	protected("POST /api/groups/{id}/events/{event_id}/response", h.RespondEvent)
 
 	// Any other /api/... path: answer in JSON, not Go's plain-text 404,
 	// so the React client can always do res.json().

@@ -34,7 +34,11 @@ func formatEventTime(value any) (string, error) {
 		if eventTime == "" {
 			return "", errors.New("event_time is required")
 		}
-		return eventTime, nil
+		parsed, err := time.Parse("2006-01-02T15:04", eventTime)
+		if err != nil {
+			return "", errors.New("event_time must use YYYY-MM-DDTHH:MM")
+		}
+		return parsed.Format("2006-01-02 15:04:05"), nil
 	default:
 		return "", fmt.Errorf("event_time must be a string or time.Time")
 	}
@@ -112,4 +116,31 @@ func Respond(db *sql.DB, eventID, userID int64, response string) error {
 			response = excluded.response,
 			updated_at = CURRENT_TIMESTAMP`, eventID, userID, response)
 	return err
+}
+
+// GetEvent returns one event if it exists.
+func GetEvent(db *sql.DB, eventID int64) (*Event, error) {
+	var event Event
+	err := db.QueryRow(`
+		SELECT id, group_id, creator_id, title, description, event_time, created_at
+		FROM events WHERE id = ?`, eventID).
+		Scan(&event.ID, &event.GroupID, &event.CreatorID, &event.Title,
+			&event.Description, &event.EventTime, &event.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+// EventBelongsToGroup reports whether an event belongs to the requested group.
+func EventBelongsToGroup(db *sql.DB, eventID, groupID int64) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE id = ? AND group_id = ?`, eventID, groupID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
 }
