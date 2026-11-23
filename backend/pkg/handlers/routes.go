@@ -36,14 +36,12 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
 
 	// ── Public (no login) ────────────────────────────────────
 	mux.HandleFunc("GET /api/health", h.Health)
-	// A (Tue/Wed):
 	mux.HandleFunc("POST /api/register", h.Register)
-	// mux.HandleFunc("POST /api/login", h.Login)
+	mux.HandleFunc("POST /api/login", h.Login)
 
 	// ── A: accounts & social graph ───────────────────────────
-	protected("GET /api/whoami", h.WhoAmI) // temporary test route, delete once /api/me exists
-	// protected("POST /api/logout", h.Logout)
-	// protected("GET /api/me", h.Me)
+	protected("POST /api/logout", h.Logout)
+	protected("GET /api/me", h.Me)
 	// protected("GET /api/users", h.ListUsers)
 	// protected("GET /api/users/{id}", h.GetUser)
 	// protected("PATCH /api/users/me/privacy", h.SetPrivacy)

@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -11,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"social-network/pkg/middleware"
 	"social-network/pkg/models"
 	"social-network/pkg/utils"
 )
@@ -171,6 +174,129 @@ func requiredText(form url.Values, field string, max int) (string, error) {
 		return "", errors.New(field + " is too long")
 	}
 	return v, nil
+}
+
+// ── Login / logout / me (Wed 25) ────────────────────────────────────────────
+
+// loginRequest is the JSON body of POST /api/login. ReadJSON rejects unknown
+// fields, so {"emial": ...} is a clear 400 instead of "email is required".
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// errBadLogin is the ONE message for "no such email" and "wrong password".
+// If they were different, anyone could use the login form to find out which
+// emails have an account.
+const errBadLogin = "invalid email or password"
+
+// dummyHash is compared against when the email doesn't exist, so a login with
+// an unknown email takes as long as one with a wrong password (~50-100 ms of
+// bcrypt). Without it, the fast answer would give the email away even though
+// the message is the same.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
+
+// Login handles POST /api/login (public).
+//
+//	curl -i -c cookies.txt -X POST localhost:8080/api/login \
+//	  -H 'Content-Type: application/json' \
+//	  -d '{"email":"maria@example.com","password":"secret123"}'
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := utils.ReadJSON(w, r, &req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Same normalisation as Register, otherwise "Maria@x.com" could never log in.
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || req.Password == "" {
+		utils.WriteError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+
+	user, err := models.GetUserByEmail(h.DB, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password)) // equal timing, result ignored
+		utils.WriteError(w, http.StatusUnauthorized, errBadLogin)
+		return
+	}
+	if err != nil {
+		utils.ServerError(w, err)
+		return
+	}
+
+	// bcrypt re-hashes the typed password with the salt stored inside the hash
+	// and compares the results in constant time. We never decrypt anything:
+	// bcrypt is one-way.
+	if len(req.Password) > 72 ||
+		bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+		utils.WriteError(w, http.StatusUnauthorized, errBadLogin)
+		return
+	}
+
+	// If this browser already had a session (e.g. user A logs in as user B
+	// without logging out), delete the old row. Every login gets a NEW random
+	// ID; we never reuse an ID the browser sent us (prevents session fixation).
+	if old, err := r.Cookie(middleware.CookieName); err == nil {
+		if err := models.DeleteSession(h.DB, old.Value); err != nil {
+			log.Printf("login: delete old session: %v", err)
+		}
+	}
+	// Housekeeping only, so a failure here must not block the login.
+	if err := models.DeleteExpiredSessions(h.DB, user.ID); err != nil {
+		log.Printf("login: delete expired sessions: %v", err)
+	}
+
+	sessionID, err := models.CreateSession(h.DB, user.ID)
+	if err != nil {
+		utils.ServerError(w, err)
+		return
+	}
+	middleware.SetSessionCookie(w, sessionID)
+
+	user.FollowStatus = "self"
+	user.CanView = true
+	utils.WriteJSON(w, http.StatusOK, user)
+}
+
+// Logout handles POST /api/logout (protected).
+//
+// Deleting the row is what really logs you out: even if someone copied the
+// cookie, the ID no longer exists in the DB, so RequireAuth answers 401.
+// Clearing the cookie just tidies up the browser.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	// RequireAuth already checked this cookie exists and is valid.
+	cookie, err := r.Cookie(middleware.CookieName)
+	if err == nil {
+		if err := models.DeleteSession(h.DB, cookie.Value); err != nil {
+			utils.ServerError(w, err)
+			return
+		}
+	}
+	middleware.ClearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Me handles GET /api/me (protected). The React AuthContext calls it on every
+// page load: 200 = logged in (and here is who), 401 = show the login page.
+// The frontend can't read the HttpOnly cookie, so this is how it finds out.
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserID(r)
+	user, err := models.GetUserByID(h.DB, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Can only happen if the user row was deleted (sessions cascade with it).
+		middleware.ClearSessionCookie(w)
+		utils.WriteError(w, http.StatusUnauthorized, "not logged in")
+		return
+	}
+	if err != nil {
+		utils.ServerError(w, err)
+		return
+	}
+	// TODO(A, Thu 26): fill FollowersCount / FollowingCount once follow.go exists.
+	user.FollowStatus = "self"
+	user.CanView = true
+	utils.WriteJSON(w, http.StatusOK, user)
 }
 
 // optionalText returns nil for a missing or blank field, so the DB stores NULL
