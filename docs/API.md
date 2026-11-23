@@ -12,57 +12,57 @@ TODO
 
 ## C: Groups & events
 
-Όλες οι διαδρομές απαιτούν σύνδεση, εκτός αν αναφέρεται διαφορετικά. Οι ταυτότητες προέρχονται από το session cookie.
+All routes require authentication unless stated otherwise. User identity comes from the session cookie.
 
-### Δημιουργία και λίστες ομάδων
+### Group creation and lists
 
 - `POST /api/groups`
   - Request: `{"title":"...","description":"..."}`
-  - Response: `201` + το αντικείμενο της ομάδας
-  - Σφάλματα: `400` μη έγκυρα πεδία, `401` μη συνδεδεμένος χρήστης
+  - Response: `201` with the created group object
+  - Errors: `400` invalid fields, `401` user is not authenticated
 - `GET /api/groups`
-  - Response: `200` + λίστα όλων των ομάδων και της κατάστασης του τρέχοντος χρήστη (`member`, `invited`, `requested`, `none`)
+  - Response: `200` with a list of all groups and the current user's status (`member`, `invited`, `requested`, `none`)
 - `GET /api/groups/{id}`
-  - Response: `200` + ομάδα, δημιουργός, μέλη και κατάσταση χρήστη
-  - Σφάλματα: `404` η ομάδα δεν υπάρχει
+  - Response: `200` with the group, creator, members, and current user's status
+  - Errors: `404` group does not exist
 
-### Αιτήματα συμμετοχής και προσκλήσεις
+### Join requests and invitations
 
 - `POST /api/groups/{id}/join`
-  - Request: `{}` ή χωρίς body
-  - Response: `201` + `{}` μετά την εγγραφή κατάστασης `requested`
-  - Σφάλματα: `409` υπάρχει ήδη αιτήματος/πρόσκληση/μέλος
+  - Request: `{}` or no body
+  - Response: `201` with `{}` after creating a `requested` status
+  - Errors: `409` a request, invitation, or membership already exists
 - `POST /api/groups/{id}/invite`
   - Request: `{"user_id":2}`
-  - Response: `201` + κατάσταση `invited`
-  - Σφάλματα: `403` καλών χρήστης δεν είναι μέλος, `409` χρήστης ήδη μέλος/προσκεκλημένος
-  - Όποιο μέλος μπορεί να προσκαλέσει έναν από τους δικούς του followers
+  - Response: `201` with `invited` status
+  - Errors: `403` the caller is not a member, `409` the target is already a member or invited
+  - Any group member can invite one of their followers
 - `POST /api/groups/{id}/members/{user_id}/accept`
   - Request: `{}`
-  - Response: `200` + `{}` με κατάσταση `member`
-  - Για προσκλήσεις: αποδέχεται ο προσκεκλημένος.
-  - Για join request: αποδέχεται μόνο ο creator της ομάδας.
+  - Response: `200` with `{}` after setting status to `member`
+  - Invitations: the invited user accepts.
+  - Join requests: only the group creator accepts.
 - `POST /api/groups/{id}/members/{user_id}/decline`
   - Request: `{}`
   - Response: `204`
-  - Για προσκλήσεις: αρνείται ο προσκεκλημένος.
-  - Για join request: αρνείται μόνο ο creator της ομάδας.
+  - Invitations: the invited user declines.
+  - Join requests: only the group creator declines.
 - `GET /api/groups/{id}/members`
-  - Response: `200` + μόνο επιβεβαιωμένα μέλη
-  - Σφάλματα: `403` ο requester δεν είναι μέλος
+  - Response: `200` with confirmed members only
+  - Errors: `403` the requester is not a member
 
 ### Events
 
 - `POST /api/groups/{id}/events`
   - Request: `{"title":"...","description":"...","event_time":"2026-12-01T18:30"}`
-  - Response: `201` + το event
-  - Μόνο μέλος μπορεί να δημιουργήσει event.
+  - Response: `201` with the created event
+  - Only a member can create an event.
 - `GET /api/groups/{id}/events`
-  - Response: `200` + λίστα events με counts `going`, `not_going` και την απάντηση του τρέχοντος χρήστη
-  - Σφάλματα: `403` ο requester δεν είναι μέλος
+  - Response: `200` with events, `going` and `not_going` counts, and the current user's response
+  - Errors: `403` the requester is not a member
 - `POST /api/groups/{id}/events/{event_id}/response`
-  - Request: `{"response":"going"}` ή `{"response":"not_going"}`
-  - Response: `200` + ενημερωμένα counts
-  - Μόνο μέλος μπορεί να απαντήσει. Η ίδια απάντηση μπορεί να αλλάξει.
+  - Request: `{"response":"going"}` or `{"response":"not_going"}`
+  - Response: `200` with updated counts
+  - Only a member can respond. The user can change their existing response.
 
-Κοινά σφάλματα: `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`.
+Common errors: `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`.
