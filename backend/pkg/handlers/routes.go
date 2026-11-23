@@ -37,7 +37,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
 	// ── Public (no login) ────────────────────────────────────
 	mux.HandleFunc("GET /api/health", h.Health)
 	// A (Tue/Wed):
-	// mux.HandleFunc("POST /api/register", h.Register)
+	mux.HandleFunc("POST /api/register", h.Register)
 	// mux.HandleFunc("POST /api/login", h.Login)
 
 	// ── A: accounts & social graph ───────────────────────────
