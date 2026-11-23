@@ -4,7 +4,275 @@ One section per owner. For each endpoint: method, path, request JSON, response J
 
 ## A: Accounts & social graph
 
-TODO
+Handler files: `pkg/handlers/auth.go`, `users.go`, `follows.go`, `notifications.go`. Models: `pkg/models/user.go`, `session.go`, `follow.go`, `notification.go`.
+ 
+### Objects used in this part
+ 
+**User**: the full profile. Returned by `/api/me`, login, register, and `GET /api/users/{id}` when you're allowed to see it.
+ 
+```json
+{
+  "id": 7,
+  "email": "maria@example.com",
+  "first_name": "Maria",
+  "last_name": "Papadopoulou",
+  "date_of_birth": "2001-04-17",
+  "nickname": "mpap",
+  "about_me": "Hi!",
+  "avatar": "/uploads/3f2a9c1e-....png",
+  "is_private": false,
+  "created_at": "2026-11-24T10:15:00Z",
+  "followers_count": 12,
+  "following_count": 30,
+  "follow_status": "self",
+  "can_view": true
+}
+```
+ 
+`password_hash` is never in any response. The Go struct gets the tag `json:"-"` so it can't leak by accident.
+ 
+**follow_status**: how the logged-in viewer relates to this user. Drives the Follow button.
+ 
+| Value | Meaning | Button shows |
+| --- | --- | --- |
+| `"self"` | It's you | (no button, privacy toggle instead) |
+| `"none"` | You don't follow them | Follow |
+| `"pending"` | You sent a request, not answered yet | Requested (click = cancel) |
+| `"following"` | Accepted follow | Unfollow |
+ 
+---
+ 
+### 1.1 Auth
+ 
+#### `POST /api/register`: public
+ 
+Creates an account. Does **not** log in. The frontend calls `POST /api/login` right after with the same email and password.
+ 
+Request: `multipart/form-data` (because of the optional avatar).
+ 
+| Field | Required | Rules |
+| --- | --- | --- |
+| `email` | yes | Trimmed, lowercased, valid per `net/mail.ParseAddress`, max 100 chars |
+| `password` | yes | 8–72 characters (72 is bcrypt's limit) |
+| `first_name` | yes | Trimmed, 1–50 chars |
+| `last_name` | yes | Trimmed, 1–50 chars |
+| `date_of_birth` | yes | `YYYY-MM-DD`, a real date, in the past |
+| `nickname` | no | Trimmed, max 30 chars. Empty string = `null` |
+| `about_me` | no | Max 500 chars. Empty string = `null` |
+| `avatar` | no | Image file, see Part 0 Images |
+ 
+Response `201`: the new **User** (`follow_status: "self"`, `can_view: true`, counts 0).
+ 
+| Error | When |
+| --- | --- |
+| `400` | A required field is missing or a rule above fails. The message names the field, e.g. `"first_name is required"` |
+| `409` | `"email already registered"` |
+| `413` / `415` | Bad avatar |
+ 
+curl:
+ 
+```bash
+curl -i -X POST localhost:8080/api/register \
+  -F email=maria@example.com -F password=secret123 \
+  -F first_name=Maria -F last_name=Papadopoulou -F date_of_birth=2001-04-17 \
+  -F nickname=mpap -F avatar=@me.png
+```
+ 
+#### `POST /api/login`: public
+ 
+```json
+{ "email": "maria@example.com", "password": "secret123" }
+```
+ 
+Response `200`: the **User**, plus a `Set-Cookie: session_id=...` header.
+ 
+| Error | When |
+| --- | --- |
+| `400` | Missing email or password |
+| `401` | `"invalid email or password"`: the **same** message for an unknown email and a wrong password |
+ 
+#### `POST /api/logout`
+ 
+No body. Deletes the session row and sends an expired `session_id` cookie. Response `204`.
+ 
+#### `GET /api/me`
+ 
+Response `200`: your own **User**. `401` if not logged in. AuthContext calls this on every page load: `200` = logged in, `401` = show login.
+ 
+---
+ 
+### 1.2 Users and profiles
+ 
+**The private-profile gate** (`models.CanViewProfile`), used by every endpoint marked *gated*:
+ 
+> You may see a user's full profile, posts and follower lists if **it's you**, **or their profile is public**, **or you have an accepted follow** to them. Otherwise `403`.
+ 
+#### `GET /api/users`
+ 
+Everyone except you, for the "find people" page. Sorted by first name.
+ 
+Response `200`:
+ 
+```json
+[
+  { "id": 3, "first_name": "Nikos", "last_name": "K", "nickname": null, "avatar": null,
+    "is_private": true, "follow_status": "pending" }
+]
+```
+ 
+(UserSummary + `is_private` + `follow_status`.)
+ 
+#### `GET /api/users/{id}`
+ 
+Always `200` for an existing user, so the page can always show a name and a Follow button.
+ 
+- If `can_view` is `true`: the full **User**.
+- If `can_view` is `false` (private and you don't follow): **only** these fields. The rest is not sent at all, not just hidden in the UI:
+```json
+{
+  "id": 3, "first_name": "Nikos", "last_name": "K", "nickname": null, "avatar": null,
+  "is_private": true, "follow_status": "none", "can_view": false
+}
+```
+ 
+| Error | When |
+| --- | --- |
+| `400` | `id` is not a number |
+| `404` | No such user |
+ 
+#### `PATCH /api/me/privacy`
+ 
+```json
+{ "is_private": true }
+```
+ 
+Response `200`: `{ "is_private": true }`.
+ 
+Going **private → public** also accepts every pending request to you (and deletes their `follow_request` notifications). A public profile has no requests, so they would otherwise be stuck forever.
+ 
+`400` if `is_private` is missing or not a boolean.
+ 
+#### `GET /api/users/{id}/followers` and `GET /api/users/{id}/following`: *gated*
+ 
+Accepted follows only. Response `200`: `[ UserSummary, ... ]`, newest first.
+ 
+| Error | When |
+| --- | --- |
+| `403` | `"this account is private"` |
+| `404` | No such user |
+ 
+#### `GET /api/users/{id}/posts`: *gated*, **owned by B**, listed here because it uses the same gate. See Part 2.
+ 
+---
+ 
+### 1.3 Follows
+ 
+Request IDs aren't needed: `follows` has the composite key `(follower_id, following_id)`, so "the request from user 3 to me" is already unique.
+ 
+#### `POST /api/users/{id}/follow`
+ 
+No body.
+ 
+- Target is **public**: row inserted as `accepted`. Response `200` `{ "follow_status": "following" }`.
+- Target is **private**: row inserted as `pending`, plus a `follow_request` notification to the target. Response `200` `{ "follow_status": "pending" }`.
+| Error | When |
+| --- | --- |
+| `400` | Following yourself |
+| `404` | No such user |
+| `409` | Already following or already requested |
+ 
+#### `DELETE /api/users/{id}/follow`
+ 
+Unfollow, or cancel your own pending request (also deletes that request's notification). Response `204`.
+ 
+`404` if you don't follow and haven't requested.
+ 
+#### `GET /api/follow-requests`
+ 
+Pending requests **to you**, newest first.
+ 
+```json
+[ { "user": { ...UserSummary }, "created_at": "2026-11-24T10:15:00Z" } ]
+```
+ 
+#### `POST /api/follow-requests/{userId}/accept` and `POST /api/follow-requests/{userId}/decline`
+ 
+`{userId}` is the **requester's** ID. Accept sets the row to `accepted`; decline deletes it. Both delete the matching `follow_request` notification. Response `204`.
+ 
+`404` if there's no pending request from that user to you. So nobody can accept a request addressed to someone else: the query always has `following_id = <logged-in user>`.
+ 
+---
+ 
+### 1.4 Notifications
+ 
+#### Notification object
+ 
+```json
+{
+  "id": 41,
+  "type": "group_invite",
+  "is_read": false,
+  "created_at": "2026-11-24T10:15:00Z",
+  "actor": { ...UserSummary },
+  "group": { "id": 2, "title": "Go learners" },
+  "event": null
+}
+```
+ 
+| `type` | Sent to | `actor` | `group` | `event` | Bell shows | Accept / Decline call |
+| --- | --- | --- | --- | --- | --- | --- |
+| `follow_request` | the private user | requester | `null` | `null` | Accept / Decline | `POST /api/follow-requests/{actor.id}/accept` or `/decline` |
+| `group_invite` | invitee | inviter | ✓ | `null` | Accept / Decline | C's invite endpoints (Part 3) |
+| `group_join_request` | group creator | requester | ✓ | `null` | Accept / Decline | C's join-request endpoints (Part 3) |
+| `group_event` | every member except the event's creator | event creator | ✓ | ✓ | link to the group | none |
+| `follow_accepted` (bonus) | the follower | the user who accepted | `null` | `null` | text | none |
+| `new_follower` (bonus) | the public user | the new follower | `null` | `null` | text | none |
+ 
+**Rule for everyone who creates request notifications (A, C):** when a request is accepted, declined or cancelled, delete its notification with `models.DeleteNotifications`. Then every `follow_request` / `group_invite` / `group_join_request` in the list is still open, and the bell can always show the buttons without asking "is this still pending?".
+ 
+The bell decides what to call from `type`, so there is no "accept notification" endpoint: the domain endpoint does the work and cleans up the notification.
+ 
+#### `GET /api/notifications`
+ 
+Your 50 newest notifications, newest first. Response `200`: `[ Notification, ... ]`.
+ 
+#### `GET /api/notifications/unread-count`
+ 
+Response `200`: `{ "count": 3 }`. The badge on the bell. **Separate from the chat badge**, which is B's.
+ 
+#### `POST /api/notifications/{id}/read`
+ 
+Response `204`. `404` if it doesn't exist **or isn't yours** (the query is `WHERE id = ? AND user_id = ?`; we don't tell people which IDs exist).
+ 
+#### `POST /api/notifications/read-all`
+ 
+Response `204`. Called when the bell dropdown opens.
+ 
+#### Live notifications (proposal for B's WebSocket, week 2)
+ 
+`CreateNotification` also pushes over the hub with `hub.SendToUser(userID, msg)`:
+ 
+```json
+{ "type": "notification", "data": { ...Notification } }
+```
+ 
+The frontend prepends it to the list and adds 1 to the badge. B: confirm or change the envelope (`type` / `data`) in Part 2 so chat and notifications use the same shape.
+ 
+---
+ 
+### 1.5 Security notes for the audit (Part 1)
+ 
+- **Passwords:** `bcrypt.GenerateFromPassword(pw, bcrypt.DefaultCost)` on register, `bcrypt.CompareHashAndPassword` on login. The plain password is never stored or logged.
+- **Generic login error:** one message for "no such email" and "wrong password", so an attacker can't use login to find out which emails are registered. (Register still says `409`, because the audit requires it. That's an accepted trade-off.)
+- **Session cookie:** `HttpOnly` means JavaScript, including an XSS payload, can't read it. `SameSite=Lax` means another site can't make the browser send it on a `POST`, which blocks CSRF on every state-changing route. Sessions expire after 7 days in the DB **and** in the cookie; the middleware checks `expires_at > now`, so a cookie someone copied stops working.
+- **Logout deletes the row**, so the old cookie is useless even if someone kept it.
+- **Private profile gate is on the backend.** A non-follower doesn't get the fields at all, so opening DevTools or calling the API with curl shows nothing more than the UI.
+- **Every query uses `?` placeholders.** User input is never concatenated into SQL.
+- **"Is this mine?" is in the WHERE clause** (`AND user_id = ?`, `AND following_id = ?`), not checked after loading the row. You can't act on someone else's notification or follow request by guessing an ID.
+- **Images:** type from the bytes, size cap, UUID filename, so a user can't upload HTML/JS pretending to be a `.png`, and can't choose a filename that overwrites another file.
+- **Known trade-off:** files under `/uploads` are served without a permission check. The UUID names make them unguessable, which is enough for this project. Say so if asked.
+---
+
 
 ## B: Posts & real-time
 
