@@ -1,0 +1,10 @@
+# Owner: C — serve dist/, SPA fallback to index.html,
+# reverse_proxy /api/* /ws /uploads/* → backend:8080
+:80 {
+	@backend path /api/* /ws /uploads/*
+	reverse_proxy @backend backend:8080
+
+	root * /srv
+	try_files {path} /index.html
+	file_server
+}

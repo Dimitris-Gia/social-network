@@ -1,0 +1,22 @@
+# Owner: A — both images, ports, volumes (week 3)
+services:
+  backend:
+    build: ./backend
+    container_name: backend
+    volumes:
+      - db-data:/app/data
+      - uploads:/app/uploads
+    expose:
+      - "8080"
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "8000:80"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
+  uploads:
