@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// Comment is the shape described in API.md. ImagePath holds the value stored
-// in the database (e.g. "uploads/x.png"); the handler adds the leading "/".
+// Comment is the shape described in API.md. ImagePath is the URL path returned by
+// utils.SaveImage (e.g. "/uploads/<uuid>.png"). It is stored and sent as is.
 type Comment struct {
 	ID        int64      `json:"id"`
 	PostID    int64      `json:"post_id"`

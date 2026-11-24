@@ -491,7 +491,7 @@ A refused message is logged on the server and never crashes it. Only the target 
  
 ### Images
  
-Uploaded images are saved by A's `utils.SaveImage` under a random UUID filename and served from `/uploads/<file>`. The API returns `image_path` as that URL path (for example `/uploads/9c1e....gif`), ready to use in an `<img src>`. The database stores `uploads/<file>`; the handler adds the leading `/`.
+Uploaded images are saved by A's `utils.SaveImage` under a random UUID filename and served from `/uploads/`. `SaveImage` returns the URL path (for example `/uploads/9c1e....gif`). That exact value is stored in the database and returned as `image_path`, ready to use in an `<img src>`. Nothing adds or removes a prefix anywhere.
 
 
 ## C: Groups & events

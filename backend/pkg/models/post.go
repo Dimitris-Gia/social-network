@@ -38,8 +38,8 @@ type PostAuthor struct {
 	AvatarPath *string `json:"avatar_path"`
 }
 
-// Post is the shape described in API.md. ImagePath holds the value stored in
-// the database (e.g. "uploads/x.png"); the handler adds the leading "/".
+// Post is the shape described in API.md. ImagePath is the URL path returned by
+// utils.SaveImage (e.g. "/uploads/<uuid>.png"). It is stored and sent as is.
 type Post struct {
 	ID           int64      `json:"id"`
 	Author       PostAuthor `json:"author"`
