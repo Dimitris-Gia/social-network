@@ -56,10 +56,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
 	// protected("POST /api/notifications/{id}/read", h.MarkNotificationRead)
 
 	// ── B: posts, comments, chat ─────────────────────────────
-	// protected("POST /api/posts", h.CreatePost)
-	// protected("GET /api/posts/feed", h.Feed)
-	// protected("GET /api/posts/{id}", h.GetPost)
-	// protected("GET /api/users/{id}/posts", h.UserPosts)
+	protected("POST /api/posts", h.CreatePost)
+	protected("GET /api/posts/feed", h.Feed)
+	protected("GET /api/posts/{id}", h.GetPost)
+	protected("GET /api/users/{id}/posts", h.UserPosts)
 	// protected("GET /api/posts/{id}/comments", h.ListComments)
 	// protected("POST /api/posts/{id}/comments", h.CreateComment)
 	// protected("GET /ws", h.ServeWS)
