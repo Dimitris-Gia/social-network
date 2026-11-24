@@ -8,6 +8,7 @@ import (
 
 	"social-network/pkg/middleware"
 	"social-network/pkg/utils"
+	"social-network/pkg/websocket"
 )
 
 // Handler carries what every handler needs. Each owner adds methods on it
@@ -16,7 +17,8 @@ import (
 //
 // B adds `Hub *websocket.Hub` here on Mon 30 Nov.
 type Handler struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Hub *websocket.Hub
 }
 
 // RegisterRoutes lists EVERY API route in one place.
@@ -26,8 +28,8 @@ type Handler struct {
 // Patterns use Go 1.22+ ServeMux syntax ("METHOD /path/{param}"), standard
 // library only. Read a path parameter with r.PathValue("id").
 // A wrong method (e.g. GET on a POST route) gets an automatic 405.
-func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
-	h := &Handler{DB: db}
+func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
+	h := &Handler{DB: db, Hub: hub}
 
 	// protected registers a route that requires a valid session.
 	protected := func(pattern string, fn http.HandlerFunc) {
@@ -62,7 +64,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB) {
 	protected("GET /api/users/{id}/posts", h.UserPosts)
 	protected("GET /api/posts/{id}/comments", h.ListComments)
 	protected("POST /api/posts/{id}/comments", h.CreateComment)
-	// protected("GET /ws", h.ServeWS)
+	protected("GET /ws", h.ServeWS)
 
 	// ── C: groups & events ───────────────────────────────────
 	protected("GET /api/groups", h.ListGroups)

@@ -13,6 +13,7 @@ import (
 
 	"social-network/pkg/db/sqlite"
 	"social-network/pkg/handlers"
+	"social-network/pkg/websocket"
 )
 
 func main() {
@@ -37,12 +38,11 @@ func main() {
 	}
 	defer db.Close()
 
-	// TODO(B, Mon 30): hub := websocket.NewHub(); go hub.Run()
-	// and pass it to RegisterRoutes.
+	hub := websocket.NewHub()
 
 	// APP: every API route is listed in pkg/handlers/routes.go.
 	mux := http.NewServeMux()
-	handlers.RegisterRoutes(mux, db)
+	handlers.RegisterRoutes(mux, db, hub)
 
 	// Uploaded images: /uploads/<uuid>.png → uploads/<uuid>.png on disk.
 	mux.Handle("GET /uploads/", serveUploads(uploadsDir))

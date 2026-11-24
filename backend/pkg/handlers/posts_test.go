@@ -18,6 +18,7 @@ import (
 	"social-network/pkg/db/sqlite"
 	"social-network/pkg/middleware"
 	"social-network/pkg/utils"
+	"social-network/pkg/websocket"
 )
 
 // These tests go through the real routes and the real RequireAuth: a session
@@ -26,6 +27,7 @@ import (
 type postsEnv struct {
 	t   *testing.T
 	db  *sql.DB
+	hub *websocket.Hub
 	mux *http.ServeMux
 }
 
@@ -53,9 +55,10 @@ func newPostsEnv(t *testing.T) *postsEnv {
 	utils.UploadDir = filepath.Join(t.TempDir(), "uploads")
 	t.Cleanup(func() { utils.UploadDir = oldDir })
 
+	hub := websocket.NewHub()
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, db)
-	return &postsEnv{t: t, db: db, mux: mux}
+	RegisterRoutes(mux, db, hub)
+	return &postsEnv{t: t, db: db, hub: hub, mux: mux}
 }
 
 // user inserts a user and a valid session; it returns the user ID and cookie.

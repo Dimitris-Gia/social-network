@@ -16,6 +16,7 @@ import (
 	"social-network/pkg/db/sqlite"
 	"social-network/pkg/middleware"
 	"social-network/pkg/models"
+	"social-network/pkg/websocket"
 )
 
 // openAuthTestDB opens a fresh DB with every migration applied. Migrations
@@ -72,7 +73,7 @@ func TestLoginLogoutFlow(t *testing.T) {
 	db := openAuthTestDB(t)
 	db.Exec(`DELETE FROM sessions`) // in case the seed migration added any
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, db)
+	RegisterRoutes(mux, db, websocket.NewHub())
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
 	u := &models.User{
