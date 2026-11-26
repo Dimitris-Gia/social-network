@@ -217,6 +217,26 @@ func Members(db *sql.DB, groupID int64) ([]Member, error) {
 	return members, rows.Err()
 }
 
+// ConfirmedMemberIDs returns the IDs of users with confirmed membership.
+func ConfirmedMemberIDs(db *sql.DB, groupID int64) ([]int64, error) {
+	rows, err := db.Query(`SELECT user_id FROM group_members
+		WHERE group_id = ? AND status = 'member'`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // GetGroupForViewer returns a group and the current viewer's membership status.
 func GetGroupForViewer(db *sql.DB, groupID, viewerID int64) (*Group, error) {
 	group, err := GetGroup(db, groupID)

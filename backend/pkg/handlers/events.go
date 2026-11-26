@@ -101,6 +101,25 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, http.StatusInternalServerError, "could not load created event")
 		return
 	}
+
+	memberIDs, err := models.ConfirmedMemberIDs(h.DB, groupID)
+	if err != nil {
+		log.Printf("CreateEvent member notifications: %v", err)
+	} else {
+		for _, memberID := range memberIDs {
+			if memberID == userID {
+				continue
+			}
+			h.notify(models.NewNotification{
+				UserID:  memberID,
+				ActorID: userID,
+				Type:    models.NotifGroupEvent,
+				GroupID: groupID,
+				EventID: eventID,
+			})
+		}
+	}
+
 	utils.WriteJSON(w, http.StatusCreated, event)
 }
 

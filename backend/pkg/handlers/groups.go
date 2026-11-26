@@ -121,7 +121,8 @@ func (h *Handler) RequestJoin(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, http.StatusBadRequest, "invalid group id")
 		return
 	}
-	if _, err := models.GetGroup(h.DB, groupID); errors.Is(err, sql.ErrNoRows) {
+	group, err := models.GetGroup(h.DB, groupID)
+	if errors.Is(err, sql.ErrNoRows) {
 		utils.WriteError(w, http.StatusNotFound, "group not found")
 		return
 	} else if err != nil {
@@ -138,6 +139,12 @@ func (h *Handler) RequestJoin(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, http.StatusInternalServerError, "could not create join request")
 		return
 	}
+	h.notify(models.NewNotification{
+		UserID:  group.CreatorID,
+		ActorID: userID,
+		Type:    models.NotifGroupJoinRequest,
+		GroupID: groupID,
+	})
 	utils.WriteJSON(w, http.StatusCreated, map[string]string{"status": "requested"})
 }
 
@@ -196,6 +203,13 @@ func (h *Handler) InviteToGroup(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, http.StatusInternalServerError, "could not invite user")
 		return
 	}
+
+	h.notify(models.NewNotification{
+		UserID:  req.UserID,
+		ActorID: inviterID,
+		Type:    models.NotifGroupInvite,
+		GroupID: groupID,
+	})
 	utils.WriteJSON(w, http.StatusCreated, map[string]string{"status": "invited"})
 }
 
@@ -254,6 +268,13 @@ func (h *Handler) AcceptMember(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, http.StatusInternalServerError, "could not accept membership")
 		return
 	}
+
+	switch status {
+	case "invited":
+		h.clearNotifications(memberID, models.NotifGroupInvite, 0, groupID)
+	case "requested":
+		h.clearNotifications(actorID, models.NotifGroupJoinRequest, memberID, groupID)
+	}
 	utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "member"})
 }
 
@@ -311,6 +332,13 @@ func (h *Handler) DeclineMember(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DeclineMember: %v", err)
 		utils.WriteError(w, http.StatusInternalServerError, "could not decline membership")
 		return
+	}
+
+	switch status {
+	case "invited":
+		h.clearNotifications(memberID, models.NotifGroupInvite, 0, groupID)
+	case "requested":
+		h.clearNotifications(actorID, models.NotifGroupJoinRequest, memberID, groupID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

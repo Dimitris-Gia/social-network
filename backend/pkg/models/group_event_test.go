@@ -67,4 +67,16 @@ func TestGroupAndEventModels(t *testing.T) {
 	if len(events) != 1 || events[0].NotGoing != 1 || events[0].MyResponse == nil || *events[0].MyResponse != "not_going" {
 		t.Fatalf("unexpected event: %+v", events)
 	}
+
+	if err := models.RequestJoin(db, groupID, 1); err == nil {
+		t.Fatal("creator unexpectedly allowed a duplicate join request")
+	}
+
+	memberIDs, err := models.ConfirmedMemberIDs(db, groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(memberIDs) != 2 {
+		t.Fatalf("confirmed members = %+v, want creator and accepted member", memberIDs)
+	}
 }
