@@ -293,7 +293,10 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		utils.ServerError(w, err)
 		return
 	}
-	// TODO(A, Thu 26): fill FollowersCount / FollowingCount once follow.go exists.
+	if err := h.fillFollowCounts(user); err != nil {
+		utils.ServerError(w, err)
+		return
+	}
 	user.FollowStatus = "self"
 	user.CanView = true
 	utils.WriteJSON(w, http.StatusOK, user)

@@ -101,3 +101,66 @@ func GetUserByID(db *sql.DB, id int64) (*User, error) {
 func GetUserByEmail(db *sql.DB, email string) (*User, error) {
 	return scanUser(db.QueryRow(`SELECT `+userColumns+` FROM users WHERE email = ?`, email))
 }
+
+// UserListItem is one row of the "find people" page: a UserSummary plus what
+// the Follow button needs. Embedding UserSummary puts its fields at the top
+// level of the JSON, so the frontend sees one flat object.
+type UserListItem struct {
+	UserSummary
+	IsPrivate    bool   `json:"is_private"`
+	FollowStatus string `json:"follow_status"`
+}
+
+// ListUsers returns every user except viewerID, sorted by name, each with
+// the viewer's follow status. The LEFT JOIN keeps users the viewer has no
+// row with (follow_status "none"); one query instead of one per user.
+func ListUsers(db *sql.DB, viewerID int64) ([]UserListItem, error) {
+	rows, err := db.Query(`SELECT `+summaryColumns+`, u.is_private,
+			CASE f.status WHEN 'accepted' THEN 'following'
+			              WHEN 'pending'  THEN 'pending'
+			              ELSE 'none' END
+		FROM users u
+		LEFT JOIN follows f ON f.following_id = u.id AND f.follower_id = ?
+		WHERE u.id <> ?
+		ORDER BY u.first_name COLLATE NOCASE, u.last_name COLLATE NOCASE, u.id`,
+		viewerID, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []UserListItem{}
+	for rows.Next() {
+		var item UserListItem
+		item.UserSummary, err = scanSummary(rows, &item.IsPrivate, &item.FollowStatus)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, item)
+	}
+	return list, rows.Err()
+}
+
+// SetPrivacy changes userID's profile to private or public.
+//
+// Going private -> public also accepts every pending request to this user:
+// a public profile has no requests, so they would otherwise be stuck forever.
+// Both changes run in one transaction, so we never end up half-done.
+func SetPrivacy(db *sql.DB, userID int64, private bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // does nothing after a successful Commit
+
+	if _, err := tx.Exec(`UPDATE users SET is_private = ? WHERE id = ?`, private, userID); err != nil {
+		return err
+	}
+	if !private {
+		if _, err := tx.Exec(`UPDATE follows SET status = 'accepted'
+			WHERE following_id = ? AND status = 'pending'`, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
