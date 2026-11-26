@@ -94,3 +94,41 @@ body {
 .users-page { max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
 .users-search { width: 100%; padding: 0.5rem; font: inherit; margin-bottom: 1rem; box-sizing: border-box; }
 .user-card-private { color: #666; }
+
+
+/* Week 2 Thu (A): notification bell (navbar, every page) */
+.notification-bell { position: relative; }
+.notification-bell-button {
+  position: relative; background: none; border: none; padding: 0.25rem;
+  font-size: 1.25rem; line-height: 1; cursor: pointer;
+}
+.notification-badge {
+  position: absolute; top: -0.25rem; right: -0.4rem;
+  min-width: 1.1rem; height: 1.1rem; padding: 0 0.25rem; box-sizing: border-box;
+  border-radius: 999px; background: #d93025; color: #fff;
+  font-size: 0.7rem; font-weight: 700; line-height: 1.1rem; text-align: center;
+}
+.notification-dropdown {
+  position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 100;
+  width: 340px; max-height: 420px; overflow-y: auto;
+  background: #fff; border: 1px solid #ddd; border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.notification-dropdown-title { font-size: 1rem; margin: 0; padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
+.notification-empty { padding: 1rem; margin: 0; color: #666; }
+.notification-list { list-style: none; margin: 0; padding: 0; }
+.notification-item { display: flex; gap: 0.6rem; padding: 0.6rem 1rem; border-bottom: 1px solid #f0f0f0; }
+.notification-item:last-child { border-bottom: none; }
+.notification-unread { background: #eef4ff; }
+.notification-body { flex: 1; min-width: 0; }
+.notification-text { margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+.notification-strong { font-weight: 600; }
+.navbar .notification-dropdown a { text-decoration: none; }
+.navbar .notification-dropdown a:hover { text-decoration: underline; }
+.notification-time { font-size: 0.75rem; color: #777; }
+.notification-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+.notification-actions button { padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 0.85rem; }
+.btn-accept { background: #1a73e8; color: #fff; border: 1px solid #1a73e8; }
+.btn-decline { background: #fff; color: #444; border: 1px solid #bbb; }
+.notification-actions button:disabled { opacity: 0.6; cursor: default; }
+.notification-error { font-size: 0.8rem; margin-top: 0.25rem; }

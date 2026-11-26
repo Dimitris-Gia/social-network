@@ -5,6 +5,7 @@
 // on every page; logout reachable from anywhere).
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import useAuth from "../../hooks/useAuth.js";
+import NotificationBell from "../notifications/NotificationBell.jsx";
 
 export default function Navbar() {
   const { user, loading, logout } = useAuth();
@@ -53,7 +54,11 @@ export default function Navbar() {
         <NavLink to="/chat">Chat</NavLink>
       </div>
       <div className="navbar-right">
-        {/* TODO (A, Thu): <NotificationBell />   TODO (B, Fri): <ChatIcon /> */}
+        {/* The bell (A) and the chat icon (B) are separate components with
+            separate badges: the audit checks that notifications and
+            private messages are kept apart. */}
+        <NotificationBell />
+        {/* TODO (B, Fri): <ChatIcon /> */}
         <NavLink to={`/users/${user.id}`}>{displayName}</NavLink>
         <button type="button" onClick={handleLogout}>Log out</button>
       </div>
