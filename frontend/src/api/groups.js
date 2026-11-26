@@ -79,3 +79,8 @@ export function createGroupPost(groupId, formData) {
     body: formData,
   });
 }
+
+export function listGroupMessages(groupId, before = 0) {
+  const query = before > 0 ? `?before=${before}` : "";
+  return request(`/api/groups/${groupId}/messages${query}`);
+}

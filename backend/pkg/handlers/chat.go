@@ -44,6 +44,10 @@ func (h *Handler) registerChatHandlers() {
 		return
 	}
 	h.Hub.Handle("private_message", h.onPrivateMessage)
+	h.Hub.Handle("group_message", h.onGroupMessage)
+	h.Hub.SetGroupMembers(func(groupID int64) ([]int64, error) {
+		return models.ConfirmedMemberIDs(h.DB, groupID)
+	})
 }
 
 // onPrivateMessage handles {"type":"private_message","data":{"to":5,"content":"Hi"}}.
@@ -86,6 +90,44 @@ func (h *Handler) onPrivateMessage(c *websocket.Client, data json.RawMessage) {
 	frame := websocket.Message{Type: "private_message", Data: msg}
 	h.Hub.SendToUser(in.To, frame)
 	h.Hub.SendToUser(senderID, frame)
+}
+
+// onGroupMessage handles {"type":"group_message","data":{"group_id":3,"content":"Hi"}}.
+func (h *Handler) onGroupMessage(c *websocket.Client, data json.RawMessage) {
+	var in struct {
+		GroupID int64  `json:"group_id"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(data, &in); err != nil || in.GroupID < 1 {
+		c.SendError(`group_message needs {"group_id": <group id>, "content": <text>}`)
+		return
+	}
+
+	content := strings.TrimSpace(in.Content)
+	if n := utf8.RuneCountInString(content); n == 0 || n > maxChatLength {
+		c.SendError("content must be 1 to 2000 characters")
+		return
+	}
+
+	senderID := c.UserID()
+	message, err := models.SaveGroupMessage(h.DB, senderID, in.GroupID, content)
+	switch {
+	case errors.Is(err, models.ErrGroupNotFound):
+		c.SendError("group not found")
+		return
+	case errors.Is(err, models.ErrGroupChatNotAllowed):
+		log.Printf("group chat: user %d tried to message group %d but is not a member", senderID, in.GroupID)
+		c.SendError("you must be a confirmed group member to chat")
+		return
+	case err != nil:
+		log.Printf("group chat: save message from %d to group %d: %v", senderID, in.GroupID, err)
+		c.SendError("internal server error")
+		return
+	}
+
+	if err := h.Hub.SendToGroup(in.GroupID, websocket.Message{Type: "group_message", Data: message}); err != nil {
+		log.Printf("group chat: send message to group %d: %v", in.GroupID, err)
+	}
 }
 
 // chatError answers for a failed chat model call. It reports whether err was
@@ -132,6 +174,36 @@ func (h *Handler) ChatHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, map[string]any{"messages": messages, "has_more": hasMore})
+}
+
+// GroupChatHistory handles GET /api/groups/{id}/messages.
+func (h *Handler) GroupChatHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserID(r)
+	if !ok {
+		utils.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	groupID, err := groupIDFromRequest(r)
+	if err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid group id")
+		return
+	}
+	limit, before, valid := postPageParams(w, r)
+	if !valid {
+		return
+	}
+
+	messages, hasMore, err := models.GroupHistory(h.DB, userID, groupID, limit, before)
+	switch {
+	case errors.Is(err, models.ErrGroupNotFound):
+		utils.WriteError(w, http.StatusNotFound, "group not found")
+	case errors.Is(err, models.ErrGroupChatNotAllowed):
+		utils.WriteError(w, http.StatusForbidden, "you must be a confirmed group member to chat")
+	case err != nil:
+		utils.ServerError(w, err)
+	default:
+		utils.WriteJSON(w, http.StatusOK, map[string]any{"messages": messages, "has_more": hasMore})
+	}
 }
 
 // ChatMarkRead handles POST /api/chat/{id}/read.

@@ -36,7 +36,6 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 		// session expired.
 		hub.SetSessionCheck(h.sessionValid)
 	}
-
 	// protected registers a route that requires a valid session.
 	protected := func(pattern string, fn http.HandlerFunc) {
 		mux.Handle(pattern, middleware.RequireAuth(db, fn))
@@ -92,6 +91,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	protected("POST /api/groups/{id}/events/{event_id}/response", h.RespondEvent)
 	protected("POST /api/groups/{id}/posts", h.CreateGroupPost)
 	protected("GET /api/groups/{id}/posts", h.ListGroupPosts)
+	protected("GET /api/groups/{id}/messages", h.GroupChatHistory)
 
 	// Any other /api/... path: answer in JSON, not Go's plain-text 404,
 	// so the React client can always do res.json().

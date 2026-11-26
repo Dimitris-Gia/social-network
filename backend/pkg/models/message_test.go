@@ -251,3 +251,32 @@ func TestChatContacts(t *testing.T) {
 		t.Errorf("loner = %#v, %v", none, err)
 	}
 }
+
+func TestGroupChatMembershipAndHistory(t *testing.T) {
+	db := openPostTestDB(t)
+	member := postTestUser(t, db, "member")
+	outsider := postTestUser(t, db, "outsider")
+
+	postTestExec(t, db, `INSERT INTO groups (creator_id, title, description) VALUES (?, 'g', 'd')`, member)
+	postTestExec(t, db, `INSERT INTO group_members (group_id, user_id, status) VALUES (1, ?, 'member')`, member)
+
+	message, err := SaveGroupMessage(db, member, 1, "hello group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.GroupID != 1 || message.SenderID != member || message.Content != "hello group" {
+		t.Fatalf("unexpected group message: %+v", message)
+	}
+
+	messages, hasMore, err := GroupHistory(db, member, 1, 20, 0)
+	if err != nil || hasMore || len(messages) != 1 {
+		t.Fatalf("member history: messages=%d more=%v err=%v", len(messages), hasMore, err)
+	}
+
+	if _, err := SaveGroupMessage(db, outsider, 1, "secret"); !errors.Is(err, ErrGroupChatNotAllowed) {
+		t.Fatalf("outsider save error = %v, want ErrGroupChatNotAllowed", err)
+	}
+	if _, _, err := GroupHistory(db, outsider, 1, 20, 0); !errors.Is(err, ErrGroupChatNotAllowed) {
+		t.Fatalf("outsider history error = %v, want ErrGroupChatNotAllowed", err)
+	}
+}

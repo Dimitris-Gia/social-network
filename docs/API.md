@@ -492,6 +492,7 @@ One connection per logged-in user, opened once by `WebSocketProvider` after logi
 | `type` | `data` | Effect |
 | --- | --- | --- |
 | `private_message` | `{ "to": 5, "content": "Hi 😀" }` | Saves the message and delivers it to user 5 |
+| `group_message` | `{ "group_id": 3, "content": "Hi group 😀" }` | Saves the message and delivers it to confirmed group members |
  
 `content` is 1 to 2000 characters. Emojis are plain UTF-8 text.
  
@@ -580,3 +581,11 @@ Common errors: `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Confli
   - Errors: `403` the caller is not a confirmed member
 
 Existing `POST /api/posts/{id}/comments` and `GET /api/posts/{id}/comments` also work for group posts. `CanViewPost` requires confirmed membership before a comment can be read or created.
+
+### Group chat
+
+- `GET /api/groups/{id}/messages?limit=&before=`
+  - Response: `200` with `{ "messages": [], "has_more": false }`, oldest first
+  - Errors: `403` the caller is not a confirmed member, `404` the group does not exist
+
+WebSocket client frame: `{"type":"group_message","data":{"group_id":3,"content":"Hi"}}`.
