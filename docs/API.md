@@ -231,6 +231,23 @@ Pending requests **to you**, newest first.
 **Rule for everyone who creates request notifications (A, C):** when a request is accepted, declined or cancelled, delete its notification with `models.DeleteNotifications`. Then every `follow_request` / `group_invite` / `group_join_request` in the list is still open, and the bell can always show the buttons without asking "is this still pending?".
  
 The bell decides what to call from `type`, so there is no "accept notification" endpoint: the domain endpoint does the work and cleans up the notification.
+
+`group` is `{ "id", "title" }` and `event` is `{ "id", "title" }`, or `null`.
+
+**How B and C create and clear notifications** (Go, in `pkg/handlers`): call the shared helpers on `Handler`. `notify` saves the row and pushes it live over the hub; both only log errors, so a failed notification never fails the real action.
+
+```go
+// C, invite (send to the invitee):
+h.notify(models.NewNotification{UserID: inviteeID, ActorID: me, Type: models.NotifGroupInvite, GroupID: groupID})
+// C, join request (send to the creator):
+h.notify(models.NewNotification{UserID: creatorID, ActorID: me, Type: models.NotifGroupJoinRequest, GroupID: groupID})
+// C, new event (loop over the members, skip the event's creator):
+h.notify(models.NewNotification{UserID: memberID, ActorID: me, Type: models.NotifGroupEvent, GroupID: groupID, EventID: eventID})
+
+// When the request is answered or cancelled (0 = "any"):
+h.clearNotifications(inviteeID, models.NotifGroupInvite, 0, groupID)
+h.clearNotifications(creatorID, models.NotifGroupJoinRequest, requesterID, groupID)
+```
  
 #### `GET /api/notifications`
  
