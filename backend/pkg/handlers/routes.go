@@ -30,6 +30,7 @@ type Handler struct {
 // A wrong method (e.g. GET on a POST route) gets an automatic 405.
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	h := &Handler{DB: db, Hub: hub}
+	h.registerChatHandlers() // NEW: plugs private_message into the hub
 
 	// protected registers a route that requires a valid session.
 	protected := func(pattern string, fn http.HandlerFunc) {
@@ -66,6 +67,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	protected("GET /api/users/{id}/posts", h.UserPosts)
 	protected("GET /api/posts/{id}/comments", h.ListComments)
 	protected("POST /api/posts/{id}/comments", h.CreateComment)
+	protected("GET /api/chat/contacts", h.ChatContacts)
+	protected("GET /api/chat/unread-count", h.ChatUnreadCount)
+	protected("GET /api/chat/{id}/messages", h.ChatHistory)
+	protected("POST /api/chat/{id}/read", h.ChatMarkRead)
 	protected("GET /ws", h.ServeWS)
 
 	// ── C: groups & events ───────────────────────────────────
