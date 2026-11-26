@@ -35,3 +35,25 @@ body {
 .navbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
 .navbar button { font: inherit; cursor: pointer; }
 .page-loading { text-align: center; margin-top: 3rem; }
+
+/* C: group page */
+.group-page { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+.group-tabs { display: flex; gap: 0.5rem; margin: 1.5rem 0; }
+.group-tabs button { padding: 0.5rem 0.75rem; }
+.group-tabs button[aria-pressed="true"] { font-weight: 700; }
+.invite-actions, .event-actions, .member-action-row, .invite-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.member-action-row, .invite-row { margin: 0.5rem 0; }
+.member-action-row span, .invite-row span { flex: 1; }
+.invite-picker, .group-event-form, .group-event-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.group-event-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.group-event-form label { display: flex; flex-direction: column; gap: 0.25rem; }
+.group-event-form input, .group-event-form textarea { padding: 0.5rem; font: inherit; }
