@@ -147,16 +147,17 @@ func (h *Handler) UserPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := models.CanViewAuthorPosts(h.DB, userID, authorID)
-	switch {
-	case errors.Is(err, models.ErrAuthorNotFound):
+	canView, err := models.CanViewProfile(h.DB, userID, authorID)
+	if errors.Is(err, models.ErrUserNotFound) {
 		utils.WriteError(w, http.StatusNotFound, "user not found")
 		return
-	case errors.Is(err, models.ErrAuthorProfilePrivate):
-		utils.WriteError(w, http.StatusForbidden, "this profile is private")
-		return
-	case err != nil:
+	}
+	if err != nil {
 		utils.ServerError(w, err)
+		return
+	}
+	if !canView {
+		utils.WriteError(w, http.StatusForbidden, "this profile is private")
 		return
 	}
 

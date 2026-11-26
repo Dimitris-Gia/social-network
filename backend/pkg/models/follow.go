@@ -85,7 +85,7 @@ func GetFollowStatus(db *sql.DB, viewerID, targetID int64) (string, error) {
 
 // IsFollowing reports whether followerID has an ACCEPTED follow on
 // followingID. A pending request does not count: it gives no access to
-// anything. B's postIsFollowing (post.go) can be replaced by this.
+// anything.
 func IsFollowing(db *sql.DB, followerID, followingID int64) (bool, error) {
 	var ok bool
 	err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM follows

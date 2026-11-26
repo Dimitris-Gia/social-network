@@ -1,10 +1,8 @@
 // Owner: B
 // CreatePost, GetPost, CanViewPost. SQL only: no HTTP code in this file.
 //
-// Everything that is not B's own table (follows, group_members) is read with a
-// small private query in this file, prefixed "post", so it cannot clash with
-// the exported helpers A and C write in follow.go and group.go. Once those
-// exist, the private helpers can be replaced by calls to them.
+// Follow and group-membership checks come from the other owners' files:
+// IsFollowing (A, follow.go) and IsMember (C, group.go).
 
 package models
 
@@ -51,12 +49,6 @@ type Post struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-// rowQuerier is satisfied by both *sql.DB and *sql.Tx, so the same helper
-// works inside and outside a transaction.
-type rowQuerier interface {
-	QueryRow(query string, args ...any) *sql.Row
-}
-
 // CreatePost inserts a post and, for a private post, its allowed viewers, in
 // one transaction. groupID is nil for a normal post. Every allowed viewer must
 // be an accepted follower of the author.
@@ -69,6 +61,22 @@ func CreatePost(db *sql.DB, userID int64, groupID *int64, content string, imageP
 	needsViewers := privacy == PrivacyPrivate && groupID == nil
 	if needsViewers && len(allowedViewers) == 0 {
 		return 0, ErrNoViewers
+	}
+
+	// Every allowed viewer must be an accepted follower of the author. This is
+	// checked BEFORE the transaction: IsFollowing uses the pool, and a pool
+	// query inside an open transaction can deadlock if the pool is ever
+	// limited to one connection.
+	if needsViewers {
+		for _, viewerID := range allowedViewers {
+			follows, err := IsFollowing(db, viewerID, userID)
+			if err != nil {
+				return 0, fmt.Errorf("check follow: %w", err)
+			}
+			if !follows {
+				return 0, ErrViewerNotFollower
+			}
+		}
 	}
 
 	tx, err := db.Begin()
@@ -91,13 +99,6 @@ func CreatePost(db *sql.DB, userID int64, groupID *int64, content string, imageP
 
 	if needsViewers {
 		for _, viewerID := range allowedViewers {
-			follows, err := postIsFollowing(tx, viewerID, userID)
-			if err != nil {
-				return 0, err
-			}
-			if !follows {
-				return 0, ErrViewerNotFollower
-			}
 			// OR IGNORE: the same ID listed twice is not an error.
 			if _, err := tx.Exec(
 				`INSERT OR IGNORE INTO post_allowed_viewers (post_id, user_id) VALUES (?, ?)`,
@@ -163,13 +164,13 @@ func CanViewPost(db *sql.DB, viewerID int64, p *Post) (bool, error) {
 		return true, nil
 	}
 	if p.GroupID != nil {
-		return postIsGroupMember(db, *p.GroupID, viewerID)
+		return IsMember(db, viewerID, *p.GroupID)
 	}
 	switch p.Privacy {
 	case PrivacyPublic:
 		return true, nil
 	case PrivacyAlmostPrivate:
-		return postIsFollowing(db, viewerID, p.Author.ID)
+		return IsFollowing(db, viewerID, p.Author.ID)
 	case PrivacyPrivate:
 		var ok bool
 		err := db.QueryRow(
@@ -182,34 +183,6 @@ func CanViewPost(db *sql.DB, viewerID int64, p *Post) (bool, error) {
 		return ok, nil
 	}
 	return false, nil // unknown privacy value: deny
-}
-
-// postIsFollowing reports whether followerID has an ACCEPTED follow on
-// followingID. Placeholder for A's IsFollowing in follow.go.
-func postIsFollowing(q rowQuerier, followerID, followingID int64) (bool, error) {
-	var ok bool
-	err := q.QueryRow(
-		`SELECT EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'accepted')`,
-		followerID, followingID,
-	).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("check follow: %w", err)
-	}
-	return ok, nil
-}
-
-// postIsGroupMember reports whether userID is a full member (not just invited
-// or requested) of the group. Placeholder for C's IsMember in group.go.
-func postIsGroupMember(q rowQuerier, groupID, userID int64) (bool, error) {
-	var ok bool
-	err := q.QueryRow(
-		`SELECT EXISTS (SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND status = 'member')`,
-		groupID, userID,
-	).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("check membership: %w", err)
-	}
-	return ok, nil
 }
 
 // Page sizes for Feed and PostsByUser (see API.md).
