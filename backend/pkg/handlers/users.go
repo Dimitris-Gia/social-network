@@ -140,7 +140,10 @@ func (h *Handler) SetPrivacy(w http.ResponseWriter, r *http.Request) {
 		utils.ServerError(w, err)
 		return
 	}
-	// TODO(A, Fri 27): when going public, delete this user's follow_request
-	// notifications too (the requests were just auto-accepted).
+	// Going public auto-accepted every pending request, so none of their
+	// notifications is open any more.
+	if !*req.IsPrivate {
+		h.clearNotifications(userID, models.NotifFollowRequest, 0, 0)
+	}
 	utils.WriteJSON(w, http.StatusOK, map[string]bool{"is_private": *req.IsPrivate})
 }

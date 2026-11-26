@@ -45,8 +45,10 @@ func (h *Handler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(A, Fri 27): if status == models.FollowPending, send a
-	// follow_request notification to targetID with CreateNotification.
+	// A private profile gets a request it can Accept / Decline from the bell.
+	if status == models.FollowPending {
+		h.notify(models.NewNotification{UserID: targetID, ActorID: me, Type: models.NotifFollowRequest})
+	}
 	utils.WriteJSON(w, http.StatusOK, map[string]string{"follow_status": status})
 }
 
@@ -70,8 +72,10 @@ func (h *Handler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		utils.ServerError(w, err)
 		return
 	}
-	// TODO(A, Fri 27): delete the follow_request notification if this was a
-	// pending request being cancelled.
+	// If this was a pending request being cancelled, its notification must go
+	// too, or the target could still "accept" it from the bell. For an
+	// accepted follow there's nothing to delete, so this is a no-op.
+	h.clearNotifications(targetID, models.NotifFollowRequest, me, 0)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -121,7 +125,8 @@ func (h *Handler) answerFollowRequest(w http.ResponseWriter, r *http.Request,
 		utils.ServerError(w, err)
 		return
 	}
-	// TODO(A, Fri 27): delete the matching follow_request notification.
+	// The request is answered, so its Accept / Decline buttons disappear.
+	h.clearNotifications(me, models.NotifFollowRequest, requesterID, 0)
 	w.WriteHeader(http.StatusNoContent)
 }
 

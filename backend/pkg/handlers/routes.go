@@ -54,9 +54,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	protected("POST /api/follow-requests/{userId}/decline", h.DeclineFollow)
 	protected("GET /api/users/{id}/followers", h.Followers)
 	protected("GET /api/users/{id}/following", h.Following)
-	// protected("GET /api/notifications", h.ListNotifications)
-	// protected("GET /api/notifications/unread-count", h.UnreadNotifications)
-	// protected("POST /api/notifications/{id}/read", h.MarkNotificationRead)
+	protected("GET /api/notifications", h.ListNotifications)
+	protected("GET /api/notifications/unread-count", h.UnreadNotifications)
+	protected("POST /api/notifications/{id}/read", h.MarkNotificationRead)
+	protected("POST /api/notifications/read-all", h.MarkAllNotificationsRead)
 
 	// ── B: posts, comments, chat ─────────────────────────────
 	protected("POST /api/posts", h.CreatePost)
