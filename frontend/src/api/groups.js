@@ -67,3 +67,15 @@ export function respondToEvent(groupId, eventId, response) {
     body: { response },
   });
 }
+
+export function listGroupPosts(groupId, before = 0) {
+  const query = before > 0 ? `?before=${before}` : "";
+  return request(`/api/groups/${groupId}/posts${query}`);
+}
+
+export function createGroupPost(groupId, formData) {
+  return request(`/api/groups/${groupId}/posts`, {
+    method: "POST",
+    body: formData,
+  });
+}

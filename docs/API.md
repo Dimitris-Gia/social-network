@@ -567,3 +567,16 @@ All routes require authentication unless stated otherwise. User identity comes f
   - Only a member can respond. The user can change their existing response.
 
 Common errors: `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`.
+
+### Group posts
+
+- `POST /api/groups/{id}/posts`
+  - `multipart/form-data`: `content` is required, optional `image`
+  - Privacy is ignored for group posts
+  - Response: `201` with the created Post
+  - Errors: `403` the caller is not a confirmed member
+- `GET /api/groups/{id}/posts?limit=&before=`
+  - Response: `200` with `{ "posts": [], "has_more": false }`
+  - Errors: `403` the caller is not a confirmed member
+
+Existing `POST /api/posts/{id}/comments` and `GET /api/posts/{id}/comments` also work for group posts. `CanViewPost` requires confirmed membership before a comment can be read or created.

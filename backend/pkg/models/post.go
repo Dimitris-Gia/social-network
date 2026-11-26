@@ -271,3 +271,55 @@ func listPosts(db *sql.DB, viewerID, authorID int64, limit int, before int64) ([
 	}
 	return posts, hasMore, nil
 }
+
+// PostsByGroup returns a page of posts belonging to groupID. It requires
+// confirmed membership, so group posts cannot leak to outsiders.
+func PostsByGroup(db *sql.DB, viewerID, groupID int64, limit int, before int64) ([]Post, bool, error) {
+	isMember, err := IsMember(db, viewerID, groupID)
+	if err != nil {
+		return nil, false, fmt.Errorf("check group membership: %w", err)
+	}
+	if !isMember {
+		return nil, false, ErrPostNotFound
+	}
+
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	if limit > MaxPageSize {
+		limit = MaxPageSize
+	}
+
+	rows, err := db.Query(`
+		SELECT `+postColumns+`
+		FROM posts p
+		JOIN users u ON u.id = p.user_id
+		WHERE p.group_id = ?
+		  AND (? = 0 OR p.id < ?)
+		ORDER BY p.id DESC
+		LIMIT ?`,
+		groupID, before, before, limit+1,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("list group posts: %w", err)
+	}
+	defer rows.Close()
+
+	posts := []Post{}
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, false, fmt.Errorf("scan group post: %w", err)
+		}
+		posts = append(posts, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("iterate group posts: %w", err)
+	}
+
+	hasMore := len(posts) > limit
+	if hasMore {
+		posts = posts[:limit]
+	}
+	return posts, hasMore, nil
+}

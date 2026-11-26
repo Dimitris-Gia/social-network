@@ -414,3 +414,29 @@ func TestPostsByUser(t *testing.T) {
 		t.Errorf("own posts = %v, want %v", postIDs(own), want)
 	}
 }
+
+func TestPostsByGroupRequiresMembership(t *testing.T) {
+	db := openPostTestDB(t)
+	author := postTestUser(t, db, "author")
+	member := postTestUser(t, db, "member")
+	outsider := postTestUser(t, db, "outsider")
+
+	postTestExec(t, db, `INSERT INTO groups (creator_id, title, description) VALUES (?, 'g', 'd')`, author)
+	postTestExec(t, db, `INSERT INTO group_members (group_id, user_id, status) VALUES (1, ?, 'member')`, author)
+	postTestExec(t, db, `INSERT INTO group_members (group_id, user_id, status) VALUES (1, ?, 'member')`, member)
+
+	groupID := int64(1)
+	mustCreate(t, db, author, &groupID, PrivacyPublic, nil)
+
+	posts, hasMore, err := PostsByGroup(db, member, groupID, 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMore || len(posts) != 1 {
+		t.Fatalf("member posts = %d, hasMore = %v", len(posts), hasMore)
+	}
+
+	if _, _, err := PostsByGroup(db, outsider, groupID, 20, 0); !errors.Is(err, ErrPostNotFound) {
+		t.Fatalf("outsider error = %v, want ErrPostNotFound", err)
+	}
+}

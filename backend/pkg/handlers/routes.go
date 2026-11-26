@@ -85,6 +85,8 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	protected("GET /api/groups/{id}/events", h.ListEvents)
 	protected("POST /api/groups/{id}/events", h.CreateEvent)
 	protected("POST /api/groups/{id}/events/{event_id}/response", h.RespondEvent)
+	protected("POST /api/groups/{id}/posts", h.CreateGroupPost)
+	protected("GET /api/groups/{id}/posts", h.ListGroupPosts)
 
 	// Any other /api/... path: answer in JSON, not Go's plain-text 404,
 	// so the React client can always do res.json().
