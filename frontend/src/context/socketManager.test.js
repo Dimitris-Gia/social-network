@@ -266,3 +266,51 @@ test("defaultSocketUrl follows the page's protocol", () => {
   assert.equal(defaultSocketUrl({ protocol: "http:", host: "localhost:5173" }), "ws://localhost:5173/ws");
   assert.equal(defaultSocketUrl({ protocol: "https:", host: "example.com" }), "wss://example.com/ws");
 });
+// --- onRetry: lets the provider ask /api/me why the connection failed ---
+
+test("onRetry is called on every failed attempt, with the attempt count", () => {
+  const calls = [];
+  const m = newManager({ onRetry: (n) => calls.push(n) });
+  m.connect();
+  lastSocket().serverDrops(); // first attempt fails (e.g. 401 at the upgrade)
+  runNextTimer();
+  lastSocket().serverDrops();
+  assert.deepEqual(calls, [1, 2]);
+
+  runNextTimer();
+  lastSocket().serverOpens();
+  lastSocket().serverDrops(); // a drop after success starts counting again
+  assert.deepEqual(calls, [1, 2, 1]);
+});
+
+test("onRetry is not called when disconnect() closes the socket", () => {
+  let calls = 0;
+  const m = newManager({ onRetry: () => calls++ });
+  m.connect();
+  lastSocket().serverOpens();
+  m.disconnect();
+  assert.equal(calls, 0);
+});
+
+test("if onRetry logs out (disconnect), no retry is scheduled", () => {
+  let m;
+  m = newManager({ onRetry: () => m.disconnect() });
+  m.connect();
+  lastSocket().serverDrops();
+  assert.equal(pendingTimers().length, 0);
+  assert.equal(m.getStatus(), STATUS.CLOSED);
+});
+
+test("an onRetry that throws does not stop the reconnect", (t) => {
+  t.mock.method(console, "error", () => {});
+  const m = newManager({
+    onRetry: () => {
+      throw new Error("boom");
+    },
+  });
+  m.connect();
+  lastSocket().serverDrops();
+  assert.equal(pendingTimers().length, 1);
+  runNextTimer();
+  assert.equal(FakeSocket.instances.length, 2);
+});

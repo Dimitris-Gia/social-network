@@ -39,6 +39,10 @@ func main() {
 	defer db.Close()
 
 	hub := websocket.NewHub()
+	// Once a minute, close WebSockets whose session has expired: the session
+	// is checked only when /ws is opened (the check function is set in
+	// handlers.RegisterRoutes).
+	go hub.RunSessionCheck(time.Minute)
 
 	// APP: every API route is listed in pkg/handlers/routes.go.
 	mux := http.NewServeMux()

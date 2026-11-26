@@ -21,7 +21,7 @@ func newTestServer(t *testing.T) (*Hub, *httptest.Server) {
 	hub := NewHub()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.ParseInt(r.URL.Query().Get("user"), 10, 64)
-		hub.ServeWS(w, r, id)
+		hub.ServeWS(w, r, id, r.URL.Query().Get("session"))
 	}))
 	t.Cleanup(srv.Close)
 	return hub, srv

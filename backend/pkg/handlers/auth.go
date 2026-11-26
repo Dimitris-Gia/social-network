@@ -272,9 +272,23 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 			utils.ServerError(w, err)
 			return
 		}
+		// The session is gone, so its open sockets must go too (also the
+		// ones in other tabs). Otherwise they would keep receiving private
+		// messages and notifications after the logout.
+		if h.Hub != nil {
+			h.Hub.CloseSession(cookie.Value)
+		}
 	}
 	middleware.ClearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// sessionValid is the hub's SessionFunc: it reports whether a session still
+// exists and has not expired (same query as RequireAuth). On a database
+// error it answers true: a short database problem must not log everyone out.
+func (h *Handler) sessionValid(sessionID string) bool {
+	_, err := models.GetUserIDBySession(h.DB, sessionID)
+	return !errors.Is(err, models.ErrNoSession)
 }
 
 // Me handles GET /api/me (protected). The React AuthContext calls it on every

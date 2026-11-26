@@ -37,22 +37,28 @@ type Client struct {
 	hub    *Hub
 	conn   *gws.Conn // nil only in unit tests
 	userID int64
-	send   chan []byte
+	// sessionID is the session that opened this connection. Logout and the
+	// expiry check use it to close the connection when the session ends
+	// (the session is only checked once, at the upgrade, otherwise).
+	sessionID string
+	send      chan []byte
 
 	mu     sync.Mutex // protects closed and the closing of send
 	closed bool
 }
 
 // ServeWS upgrades the HTTP request to a WebSocket for userID and serves it
-// until the browser leaves. The caller must already have authenticated the
-// user (RequireAuth does it for GET /ws): never pass a user ID from the request.
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, userID int64) {
+// until the browser leaves, or until the session ends (see CloseSession and
+// RunSessionCheck). The caller must already have authenticated the user
+// (RequireAuth does it for GET /ws): never pass a user ID from the request.
+// sessionID is the cookie that RequireAuth accepted.
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, userID int64, sessionID string) {
 	conn, err := upgrader.Upgrade(w, r, nil) // on failure it has already answered
 	if err != nil {
 		log.Printf("websocket: upgrade for user %d failed: %v", userID, err)
 		return
 	}
-	c := &Client{hub: h, conn: conn, userID: userID, send: make(chan []byte, sendBuffer)}
+	c := &Client{hub: h, conn: conn, userID: userID, sessionID: sessionID, send: make(chan []byte, sendBuffer)}
 	h.register(c)
 	go c.writePump()
 	go c.readPump()

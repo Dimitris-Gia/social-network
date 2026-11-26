@@ -31,6 +31,11 @@ type Handler struct {
 func RegisterRoutes(mux *http.ServeMux, db *sql.DB, hub *websocket.Hub) {
 	h := &Handler{DB: db, Hub: hub}
 	h.registerChatHandlers() // NEW: plugs private_message into the hub
+	if hub != nil {
+		// Lets hub.RunSessionCheck (started in server.go) close sockets whose
+		// session expired.
+		hub.SetSessionCheck(h.sessionValid)
+	}
 
 	// protected registers a route that requires a valid session.
 	protected := func(pattern string, fn http.HandlerFunc) {

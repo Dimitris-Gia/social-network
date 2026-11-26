@@ -11,6 +11,7 @@
 // socketManager.js and is tested there.
 import { createContext, useEffect, useMemo, useRef, useState } from "react";
 import useAuth from "../hooks/useAuth.js";
+import * as authApi from "../api/auth.js";
 import { createSocketManager } from "./socketManager.js";
 
 export const WebSocketContext = createContext(null);
@@ -24,7 +25,18 @@ export function WebSocketProvider({ children }) {
 
   // One manager for the lifetime of the provider. It does nothing until connect().
   const managerRef = useRef(null);
-  if (managerRef.current === null) managerRef.current = createSocketManager();
+  if (managerRef.current === null) {
+    managerRef.current = createSocketManager({
+      // A failed (re)connect may mean the session expired: the browser can't
+      // show us the 401 from /ws, so ask /api/me. A 401 there goes through
+      // client.js's handler -> AuthContext forgets the user -> this provider
+      // disconnects (no more retries) and the user lands on /login.
+      // Any other failure (server down, network) is ignored: we keep retrying.
+      onRetry: () => {
+        authApi.me().catch(() => {});
+      },
+    });
+  }
   const manager = managerRef.current;
 
   const [status, setStatus] = useState(manager.getStatus());

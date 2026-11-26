@@ -31,7 +31,10 @@ const maxChatLength = 2000 // characters (API.md)
 // user ID comes from the session, never from the URL or from a frame.
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.UserID(r)
-	h.Hub.ServeWS(w, r, userID)
+	// RequireAuth already accepted this cookie. The hub keeps it so it can
+	// close the socket on logout or when the session expires.
+	cookie, _ := r.Cookie(middleware.CookieName)
+	h.Hub.ServeWS(w, r, userID, cookie.Value)
 }
 
 // registerChatHandlers tells the hub what to do with frames sent by browsers.

@@ -8,6 +8,10 @@
 //   - send(type, data): {"type": ..., "data": ...}, the same envelope as the server
 //   - if the connection drops, it reconnects with a growing delay (1s, 2s, 4s ...
 //     up to 30s) until disconnect() is called
+//   - onRetry(attempts) is called every time a connection closes or fails to
+//     open and a retry is scheduled. The browser hides WHY a WebSocket failed
+//     (a 401 at the upgrade looks like any network error), so the provider
+//     uses this hook to ask the server with GET /api/me.
 //
 // Synthetic event: "ws:reconnected" is delivered to subscribers every time the
 // connection comes back after a drop. Messages and notifications that arrived
@@ -37,6 +41,7 @@ export function createSocketManager({
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (id) => clearTimeout(id),
   random = Math.random,
+  onRetry = () => {},
 } = {}) {
   const handlers = new Map(); // type -> Set of functions
   const statusListeners = new Set();
@@ -111,6 +116,14 @@ export function createSocketManager({
       if (!wantOpen) return;
       attempts += 1;
       setStatus(STATUS.RECONNECTING);
+      try {
+        onRetry(attempts);
+      } catch (err) {
+        console.error("websocket: onRetry failed", err);
+      }
+      // onRetry may have logged the user out, which calls disconnect():
+      // then there is nothing to retry.
+      if (!wantOpen) return;
       // 1s, 2s, 4s ... capped, with some randomness so many tabs do not all
       // come back at the same moment.
       const delay = Math.min(maxDelay, baseDelay * 2 ** (attempts - 1)) * (0.5 + random() / 2);

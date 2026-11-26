@@ -28,6 +28,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"time"
 )
 
 // Message is one frame sent TO a browser.
@@ -44,14 +45,20 @@ type HandlerFunc func(c *Client, data json.RawMessage)
 // the hub does not need to know the groups tables.
 type MembersFunc func(groupID int64) ([]int64, error)
 
+// SessionFunc reports whether a session ID is still valid (it exists in the
+// sessions table and has not expired). A provides it, so the hub does not
+// need to know the sessions table.
+type SessionFunc func(sessionID string) bool
+
 // ErrNoMembersFunc is returned by SendToGroup until SetGroupMembers is called.
 var ErrNoMembersFunc = errors.New("websocket: group members lookup not set")
 
 type Hub struct {
-	mu       sync.RWMutex
-	clients  map[int64]map[*Client]struct{} // userID -> that user's connections
-	handlers map[string]HandlerFunc         // frame type -> handler
-	members  MembersFunc
+	mu        sync.RWMutex
+	clients   map[int64]map[*Client]struct{} // userID -> that user's connections
+	handlers  map[string]HandlerFunc         // frame type -> handler
+	members   MembersFunc
+	sessionOK SessionFunc
 }
 
 func NewHub() *Hub {
@@ -74,6 +81,14 @@ func (h *Hub) SetGroupMembers(fn MembersFunc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.members = fn
+}
+
+// SetSessionCheck tells the hub how to check that a session is still valid
+// (A). RunSessionCheck uses it.
+func (h *Hub) SetSessionCheck(fn SessionFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sessionOK = fn
 }
 
 func (h *Hub) handlerFor(msgType string) (HandlerFunc, bool) {
@@ -163,4 +178,77 @@ func (h *Hub) SendToGroup(groupID int64, msg Message) error {
 	}
 	h.SendToUsers(ids, msg)
 	return nil
+}
+
+// ── Ending connections when their session ends ──────────────────────────
+//
+// RequireAuth checks the session only once, when the browser opens /ws.
+// Without the two functions below, an open socket would keep receiving
+// private messages and notifications after a logout in another tab, or
+// after the session expired. Closing the socket also tells the browser:
+// it tries to reconnect, the upgrade gets a 401, and the frontend logs out.
+
+// CloseSession closes every connection opened with this session ID. Logout
+// calls it. Other sessions of the same user (another browser, another
+// device) stay connected: they are still logged in.
+func (h *Hub) CloseSession(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	for _, c := range h.allConns() {
+		if c.sessionID == sessionID {
+			c.close()
+		}
+	}
+}
+
+// closeInvalidSessions makes one pass: every connection whose session is no
+// longer valid is closed. Does nothing until SetSessionCheck is called.
+func (h *Hub) closeInvalidSessions() {
+	h.mu.RLock()
+	valid := h.sessionOK
+	h.mu.RUnlock()
+	if valid == nil {
+		return
+	}
+	// Check each session once, even if it has several connections (tabs).
+	checked := make(map[string]bool)
+	for _, c := range h.allConns() {
+		if c.sessionID == "" {
+			continue
+		}
+		ok, seen := checked[c.sessionID]
+		if !seen {
+			ok = valid(c.sessionID) // database query: done WITHOUT holding h.mu
+			checked[c.sessionID] = ok
+		}
+		if !ok {
+			log.Printf("websocket: session of user %d ended, closing its connection", c.userID)
+			c.close()
+		}
+	}
+}
+
+// RunSessionCheck runs closeInvalidSessions every `every`, forever. Start it
+// once, in its own goroutine: go hub.RunSessionCheck(time.Minute)
+func (h *Hub) RunSessionCheck(every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.closeInvalidSessions()
+	}
+}
+
+// allConns returns a copy of every connection, so callers can close them
+// without holding the hub's lock (close unregisters, which locks).
+func (h *Hub) allConns() []*Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []*Client
+	for _, conns := range h.clients {
+		for c := range conns {
+			out = append(out, c)
+		}
+	}
+	return out
 }
