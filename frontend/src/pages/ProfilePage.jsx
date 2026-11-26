@@ -12,6 +12,7 @@ import useAuth from "../hooks/useAuth.js";
 import Avatar, { displayName } from "../components/common/Avatar.jsx";
 import UserCard from "../components/users/UserCard.jsx";
 import PostCard from "../components/posts/PostCard.jsx";
+import FollowButton from "../components/users/FollowButton.jsx";
 
 export default function ProfilePage() {
   const { id } = useParams();
@@ -42,10 +43,20 @@ export default function ProfilePage() {
     };
   }, [id]);
 
-  // After the privacy toggle, reload: going public auto-accepts pending
-  // requests on the server, so the follower count may have changed too.
+  // Reload after anything that changes what the server lets us see:
+  // - privacy toggle: going public auto-accepts pending requests, so the
+  //   follower count may have changed.
+  // - follow / unfollow: following a PUBLIC profile changes followers_count;
+  //   unfollowing a PRIVATE one makes can_view false, and the server stops
+  //   sending the private fields. We must ask again rather than flip
+  //   follow_status locally, or the page would keep showing data we're no
+  //   longer allowed to see.
   async function reload() {
-    setProfile(await usersApi.getUser(id));
+    try {
+      setProfile(await usersApi.getUser(id));
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   if (error) return <p className="page-loading">{error}</p>; // e.g. "user not found"
@@ -66,14 +77,16 @@ export default function ProfilePage() {
           )}
           <p className="profile-muted">{profile.is_private ? "🔒 Private profile" : "🌐 Public profile"}</p>
         </div>
-        {/* Wed 2: <FollowButton> goes here for other people's profiles. */}
-        {isMe && <PrivacyToggle isPrivate={profile.is_private} onChanged={reload} />}
+        {isMe ? (
+          <PrivacyToggle isPrivate={profile.is_private} onChanged={reload} />
+        ) : (
+          <FollowButton userId={profile.id} status={profile.follow_status} onChange={reload} />
+        )}
       </header>
 
       {!profile.can_view ? (
         // The server only sent id, names, avatar, is_private, follow_status.
-        // Wed 2 turns this into the full "This account is private" view.
-        <p className="profile-locked">This account is private. Follow them to see their posts and info.</p>
+        <PrivateProfileNotice profile={profile} />
       ) : (
         <>
           <AboutSection profile={profile} />
@@ -99,6 +112,30 @@ export default function ProfilePage() {
         </>
       )}
     </section>
+  );
+}
+
+// "This account is private": shown when can_view is false. There is nothing
+// to hide here: the server didn't send email, birthday, about me, counts or
+// posts, and the followers / following / posts endpoints answer 403 for this
+// viewer. So even with DevTools or curl you see exactly this, no more.
+// The text depends on follow_status, so after "Follow" the visitor sees that
+// the request is waiting instead of the same "follow them" text again.
+function PrivateProfileNotice({ profile }) {
+  const name = displayName(profile);
+  return (
+    <div className="profile-locked" role="status">
+      <p className="profile-locked-icon" aria-hidden="true">🔒</p>
+      <h2>This account is private</h2>
+      {profile.follow_status === "pending" ? (
+        <p className="profile-muted">
+          Your follow request is waiting for {name} to accept it. You'll see their posts, info and followers once
+          they do.
+        </p>
+      ) : (
+        <p className="profile-muted">Follow {name} to see their posts, info and followers.</p>
+      )}
+    </div>
   );
 }
 

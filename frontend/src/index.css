@@ -78,3 +78,19 @@ body {
 .user-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .user-card { display: flex; align-items: center; gap: 0.75rem; }
 .user-card-link { display: flex; align-items: center; gap: 0.75rem; color: inherit; text-decoration: none; flex: 1; }
+
+/* Week 2 Wed (A): follow button, private profile view, people page */
+.follow-button-wrap { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+.follow-button { padding: 0.4rem 0.9rem; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid #1a73e8; min-width: 6.5rem; }
+.follow-button-none { background: #1a73e8; color: #fff; }
+.follow-button-pending { background: #fff; color: #555; border-color: #bbb; }
+.follow-button-following { background: #fff; color: #1a73e8; }
+.follow-button:disabled { opacity: 0.6; cursor: default; }
+.follow-button-error { font-size: 0.85rem; }
+.profile-header .follow-button-wrap { margin-left: auto; }
+.profile-locked { text-align: center; }
+.profile-locked h2 { margin: 0.25rem 0; }
+.profile-locked-icon { font-size: 2rem; margin: 0; }
+.users-page { max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+.users-search { width: 100%; padding: 0.5rem; font: inherit; margin-bottom: 1rem; box-sizing: border-box; }
+.user-card-private { color: #666; }

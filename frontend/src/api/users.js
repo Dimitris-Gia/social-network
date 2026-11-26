@@ -21,6 +21,15 @@ export const getFollowing = (id) => request(`/api/users/${id}/following`);
 export const getUserPosts = (id, before) =>
   request(`/api/users/${id}/posts${before ? `?before=${before}` : ""}`);
 
+// Follow someone. The SERVER decides the result from the target's privacy:
+// public -> { follow_status: "following" }, private -> { follow_status: "pending" }.
+// 409 if you already follow them or already requested.
+export const follow = (id) => request(`/api/users/${id}/follow`, { method: "POST" });
+
+// One endpoint for both "Unfollow" and "cancel my pending request": the
+// server deletes the follows row whatever its status. 204, so it returns null.
+export const unfollow = (id) => request(`/api/users/${id}/follow`, { method: "DELETE" });
+
 // No user ID: the server takes it from the session, so you can only ever
 // change your own privacy.
 export const setPrivacy = (isPrivate) =>
