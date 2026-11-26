@@ -2,3 +2,11 @@ body {
   margin: 0;
   font-family: system-ui, sans-serif;
 }
+
+/* A: login / register forms */
+.auth-page { max-width: 360px; margin: 3rem auto; padding: 0 1rem; }
+.auth-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.auth-form label { display: flex; flex-direction: column; gap: 0.25rem; }
+.auth-form input { padding: 0.5rem; font: inherit; }
+.auth-form button { padding: 0.6rem; font: inherit; cursor: pointer; }
+.form-error { color: #b00020; margin: 0; }
